@@ -1,0 +1,135 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v7.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v7.0": {
+      "ImagingUtility/1.0.0": {
+        "dependencies": {
+          "AlphaVSS": "2.0.0",
+          "System.Management": "7.0.0",
+          "ZstdNet": "1.4.5"
+        },
+        "runtime": {
+          "ImagingUtility.dll": {}
+        }
+      },
+      "AlphaVSS/2.0.0": {
+        "dependencies": {
+          "AlphaVSS.Native.NetCore": "2.0.0"
+        },
+        "runtime": {
+          "lib/netcoreapp3.1/AlphaVSS.Common.dll": {
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "2.0.0.0"
+          }
+        }
+      },
+      "AlphaVSS.Native.NetCore/2.0.0": {
+        "runtimeTargets": {
+          "runtimes/win-x64/native/AlphaVSS.x64.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "1.0.0.1"
+          },
+          "runtimes/win-x64/native/Ijwhost.dll": {
+            "rid": "win-x64",
+            "assetType": "native",
+            "fileVersion": "3.100.19.56502"
+          },
+          "runtimes/win-x86/native/AlphaVSS.x86.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "1.0.0.1"
+          },
+          "runtimes/win-x86/native/Ijwhost.dll": {
+            "rid": "win-x86",
+            "assetType": "native",
+            "fileVersion": "3.100.19.56502"
+          }
+        }
+      },
+      "System.CodeDom/7.0.0": {
+        "runtime": {
+          "lib/net7.0/System.CodeDom.dll": {
+            "assemblyVersion": "7.0.0.0",
+            "fileVersion": "7.0.22.51805"
+          }
+        }
+      },
+      "System.Management/7.0.0": {
+        "dependencies": {
+          "System.CodeDom": "7.0.0"
+        },
+        "runtime": {
+          "lib/net7.0/System.Management.dll": {
+            "assemblyVersion": "4.0.0.0",
+            "fileVersion": "7.0.22.51805"
+          }
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net7.0/System.Management.dll": {
+            "rid": "win",
+            "assetType": "runtime",
+            "assemblyVersion": "4.0.0.0",
+            "fileVersion": "7.0.22.51805"
+          }
+        }
+      },
+      "ZstdNet/1.4.5": {
+        "runtime": {
+          "lib/netstandard2.1/ZstdNet.dll": {
+            "assemblyVersion": "1.4.5.0",
+            "fileVersion": "1.4.5.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "ImagingUtility/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AlphaVSS/2.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-sFXPSeN8zKmXWcKu9djxPxHc69NzTwXd2/CiQAdnXIM2FaCKqPvfGzHtE8A+PyCGywTszQDD1KnjbjbZJeXZTg==",
+      "path": "alphavss/2.0.0",
+      "hashPath": "alphavss.2.0.0.nupkg.sha512"
+    },
+    "AlphaVSS.Native.NetCore/2.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-sMGbt7LIhYSvFcVoThLWXUBsSetDzSaVX+VRhp/ZcvHBo7pzAB1paCpaTLvDg94wQHGKZn6H+5HKpZok0fTbpA==",
+      "path": "alphavss.native.netcore/2.0.0",
+      "hashPath": "alphavss.native.netcore.2.0.0.nupkg.sha512"
+    },
+    "System.CodeDom/7.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-GLltyqEsE5/3IE+zYRP5sNa1l44qKl9v+bfdMcwg+M9qnQf47wK3H0SUR/T+3N4JEQXF3vV4CSuuo0rsg+nq2A==",
+      "path": "system.codedom/7.0.0",
+      "hashPath": "system.codedom.7.0.0.nupkg.sha512"
+    },
+    "System.Management/7.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-A4jed4QUviDOm7fJNKAJObEAEkEUXmkGL/w0iyCYTzrl1rezTj8LGFHfsVst4Vb9JwFcTpboiDrvdST48avBpw==",
+      "path": "system.management/7.0.0",
+      "hashPath": "system.management.7.0.0.nupkg.sha512"
+    },
+    "ZstdNet/1.4.5": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-fi9aP1QY3ZenIMUW1pxdSjku6lYAUjScrwfXSXT1qyKtTdLxOIzeBMe+w/hQm0vMsvQnjcFInByMrIT7AlXUHA==",
+      "path": "zstdnet/1.4.5",
+      "hashPath": "zstdnet.1.4.5.nupkg.sha512"
+    }
+  }
+}

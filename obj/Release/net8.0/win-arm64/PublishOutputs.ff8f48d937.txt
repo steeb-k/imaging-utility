@@ -1,0 +1,2 @@
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\publish\ImagingUtility.pdb
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\publish\ImagingUtility.exe

@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "/THcuPLmM2c=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\steeb\\.nuget\\packages\\system.codedom\\7.0.0\\system.codedom.7.0.0.nupkg.sha512",
+    "C:\\Users\\steeb\\.nuget\\packages\\system.management\\7.0.0\\system.management.7.0.0.nupkg.sha512",
+    "C:\\Users\\steeb\\.nuget\\packages\\zstdsharp.port\\0.8.6\\zstdsharp.port.0.8.6.nupkg.sha512"
+  ],
+  "logs": []
+}
