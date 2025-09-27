@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Collections.Generic;
 using System.Reflection;
+using DiscUtils.Ntfs;
 
 namespace ImagingUtility
 {
@@ -41,6 +42,9 @@ namespace ImagingUtility
                     var deviceArg = GetArgValue(args, "--device");
                     var outArg = GetArgValue(args, "--out");
                     var useVss = Array.Exists(args, a => a.Equals("--use-vss", StringComparison.OrdinalIgnoreCase));
+                    bool writeThrough = false; // default OFF (opt-in)
+                    if (Array.Exists(args, a => a.Equals("--write-through", StringComparison.OrdinalIgnoreCase))) writeThrough = true;
+                    else if (Array.Exists(args, a => a.Equals("--no-write-through", StringComparison.OrdinalIgnoreCase))) writeThrough = false;
                     var resume = Array.Exists(args, a => a.Equals("--resume", StringComparison.OrdinalIgnoreCase));
                     // Default to used-only; allow opt-out via --all-blocks or --no-used-only
                     bool usedOnly = true;
@@ -69,18 +73,18 @@ namespace ImagingUtility
                         else if (int.TryParse(chunkSizeArg, out var ci) && ci > 0)
                             chunkSize = ci;
                     }
+                    // Dynamic defaults: target total threads ~4 when available -> parallel=2, pipelineDepth=2
+                    var pipeDepthArg = GetArgValue(args, "--pipeline-depth");
+                    int pipelineDepth;
+                    int effectiveParallel;
+                    ComputeParallelDefaults(parallel, pipeDepthArg, out effectiveParallel, out pipelineDepth);
 
-                            var parCtlFile = GetArgValue(args, "--parallel-control-file");
-                            int pipelineDepth = 2; // Default value for pipeline depth
-                            var pipeDepthArg = GetArgValue(args, "--pipeline-depth");
-                            if (!string.IsNullOrEmpty(pipeDepthArg) && int.TryParse(pipeDepthArg, out var pd) && pd >= 1 && pd <= 8)
-                                pipelineDepth = pd;
+                    // Multi-volume mode
                     if (!string.IsNullOrEmpty(volumesArg) && !string.IsNullOrEmpty(outDirArg))
                     {
-                        var getDesiredMv = BuildParallelProvider(parallel, parCtlFile, parCtlPipe);
-                        return await ImageMultipleVolumes(volumesArg, outDirArg, useVss, resume, maxBytes, usedOnly, chunkSize, parallel, getDesiredMv);
+                        var getDesiredMv = BuildParallelProvider(effectiveParallel, parCtlFile, parCtlPipe);
+                        return await ImageMultipleVolumes(volumesArg, outDirArg, useVss, resume, maxBytes, usedOnly, chunkSize, effectiveParallel, getDesiredMv, writeThrough, pipelineDepth);
                     }
-
                     if (string.IsNullOrEmpty(deviceArg) || string.IsNullOrEmpty(outArg))
                     {
                         Console.Error.WriteLine("Usage: image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <output-file> [--use-vss] [--resume]".Replace(" ", string.Empty));
@@ -104,6 +108,22 @@ namespace ImagingUtility
                             Console.WriteLine($"Snapshot created: {snapshotId}, device: {deviceToRead}");
                         }
 
+                        // If not using VSS and the user passed a drive letter (e.g., D: or D:\), map to raw device \\.\D:
+                        if (!useVss)
+                        {
+                            string d = deviceToRead.Trim();
+                            if (!d.StartsWith(@"\\.\"))
+                            {
+                                // Accept D:, D:\, or plain 'D' (be generous)
+                                if (d.Length >= 2 && d[1] == ':') d = d.Substring(0, 2);
+                                else if (d.Length == 1 && char.IsLetter(d[0])) d = d + ":";
+                                if (d.Length == 2 && char.IsLetter(d[0]) && d[1] == ':')
+                                {
+                                    deviceToRead = @"\\.\" + char.ToUpperInvariant(d[0]) + ":";
+                                }
+                            }
+                        }
+
                         Console.WriteLine($"Imaging device {deviceToRead} to {outArg} ...");
                         var overallSw = System.Diagnostics.Stopwatch.StartNew();
                         using var reader = new RawDeviceReader(deviceToRead);
@@ -112,7 +132,8 @@ namespace ImagingUtility
                         List<IndexEntry>? existingIndex = null;
                         long startOffset = 0;
                         FileMode mode = append ? FileMode.Open : FileMode.Create;
-                        using var outStream = new FileStream(outArg, mode, FileAccess.ReadWrite, FileShare.None);
+                        var fopts = writeThrough ? FileOptions.WriteThrough : FileOptions.None;
+                        using var outStream = new FileStream(outArg, mode, FileAccess.ReadWrite, FileShare.None, 4096, fopts);
                         if (append)
                         {
                             try
@@ -132,27 +153,29 @@ namespace ImagingUtility
                             }
                         }
 
-                        var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, chunkSize ?? (64 * 1024 * 1024), append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
-                        Func<int>? getDesired = BuildParallelProvider(parallel, parCtlFile, parCtlPipe);
+                        int finalChunk = chunkSize ?? ResolveDefaultChunkSize(effectiveParallel, pipelineDepth);
+                        var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, finalChunk, append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
+                        Func<int>? getDesired = BuildParallelProvider(effectiveParallel, parCtlFile, parCtlPipe);
                         using (var p = new ConsoleProgressScope($"Imaging {deviceToRead}"))
                         {
                             bool canUsedOnly = usedOnly && reader.TryGetNtfsBytesPerCluster(out _);
                             if (canUsedOnly && startOffset == 0)
                             {
-                                writer.WriteAllocatedOnly(reader, (done, total) => p.Report(done, total), parallel, getDesired);
+                                writer.WriteAllocatedOnly(reader, (done, total) => p.Report(done, total), effectiveParallel, getDesired, pipelineDepth);
                             }
                             else
                             {
                                 if (canUsedOnly && startOffset > 0)
                                     Console.WriteLine("[info] Resume with --used-only not yet optimized; falling back to full-range resume for correctness.");
-                                await writer.WriteFromAsync(reader, startOffset, maxBytes, (done, total) => p.Report(done, total), parallel, getDesired);
-                                        writer.WriteAllocatedOnly(reader, (done, total) => p.Report(done, total), parallel, getDesired, pipelineDepth);
+                                var res = await writer.WriteFromAsync(reader, startOffset, maxBytes, (done, total) => p.Report(done, total), effectiveParallel, getDesired, pipelineDepth);
+                                Console.WriteLine($"Wrote {res.chunksWritten} chunks; last device offset: {res.lastDeviceOffset}");
+                            }
                         }
 
                         overallSw.Stop();
                         double secs = Math.Max(0.001, overallSw.Elapsed.TotalSeconds);
                         long totalRaw = 0;
-                                        var res = await writer.WriteFromAsync(reader, startOffset, maxBytes, (done, total) => p.Report(done, total), parallel, getDesired, pipelineDepth);
+                        try
                         {
                             using var imgReader = new ImageReader(outArg);
                             foreach (var e in imgReader.Index) totalRaw += e.UncompressedLength;
@@ -167,7 +190,6 @@ namespace ImagingUtility
                         {
                             try
                             {
-                                // Delete snapshot via WMI
                                 try { new VssUtils().DeleteSnapshot(snapshotId); } catch { }
                                 Console.WriteLine($"Deleted snapshot {snapshotId}");
                             }
@@ -246,29 +268,247 @@ namespace ImagingUtility
                     Console.WriteLine($"Export to VHD complete. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg2}/s");
                     return 0;
                 }
+                else if (cmd == "export-range")
+                {
+                    // export-range --in <image-file> --offset <bytes> --length <bytes> [--out <file>]
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var lenArg = GetArgValue(args, "--length");
+                    var outArg = GetArgValue(args, "--out");
+                    if (string.IsNullOrEmpty(inArg) || !File.Exists(inArg) || string.IsNullOrEmpty(offArg) || string.IsNullOrEmpty(lenArg) ||
+                        !long.TryParse(offArg, out var offset) || !long.TryParse(lenArg, out var length) || offset < 0 || length < 0)
+                    {
+                        Console.Error.WriteLine("Usage: export-range --in <image-file> --offset <bytes> --length <bytes> [--out <file>]");
+                        return 1;
+                    }
+                    Console.WriteLine($"Exporting {length} bytes from offset {offset}...");
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    using var rai = new RandomAccessImage(inArg);
+                    if (string.IsNullOrEmpty(outArg))
+                    {
+                        // stdout
+                        byte[] buffer = new byte[1024 * 1024];
+                        long remaining = length;
+                        long pos = offset;
+                        using var stdout = Console.OpenStandardOutput();
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(buffer.Length, remaining);
+                            rai.ReadAsync(pos, buffer, 0, toRead).GetAwaiter().GetResult();
+                            stdout.Write(buffer, 0, toRead);
+                            pos += toRead; remaining -= toRead;
+                        }
+                    }
+                    else
+                    {
+                        using var outFs = new FileStream(outArg, FileMode.Create, FileAccess.Write, FileShare.Read);
+                        byte[] buffer = new byte[1024 * 1024];
+                        long remaining = length;
+                        long pos = offset;
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(buffer.Length, remaining);
+                            rai.ReadAsync(pos, buffer, 0, toRead).GetAwaiter().GetResult();
+                            outFs.Write(buffer, 0, toRead);
+                            pos += toRead; remaining -= toRead;
+                        }
+                    }
+                    sw.Stop();
+                    Console.WriteLine($"Done. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}");
+                    return 0;
+                }
+                else if (cmd == "ntfs-extract")
+                {
+                    // ntfs-extract --in <image-file> --offset <bytes> --out-dir <dir> [--path <relative>] [--list-only]
+                    // or: ntfs-extract --set-dir <set> --partition <N|Letter> --out-dir <dir> [--path <relative>] [--list-only]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var outDir = GetArgValue(args, "--out-dir");
+                    var relPath = GetArgValue(args, "--path");
+                    bool listOnly = Array.Exists(args, a => a.Equals("--list-only", StringComparison.OrdinalIgnoreCase));
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: ntfs-extract --in <image-file> --offset <partition-start-bytes> --out-dir <dir> [--path <relative>] [--list-only]\n   or: ntfs-extract --set-dir <set> --partition <N|Letter> --out-dir <dir> [--path <relative>] [--list-only]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(outDir))
+                    {
+                        Console.Error.WriteLine("Usage: ntfs-extract --out-dir <dir> plus either (--in + --offset) or (--set-dir + --partition)");
+                        return 1;
+                    }
+                    Directory.CreateDirectory(outDir);
+                    using var rai = new RandomAccessImage(imgPath);
+                    using var win = new ImageWindowStream(rai, volOffset);
+#pragma warning disable CA1416
+                    var ntfs = new NtfsFileSystem(win);
+#pragma warning restore CA1416
+                    if (listOnly)
+                    {
+                        foreach (var e in ntfs.GetFiles("\\", "*", System.IO.SearchOption.AllDirectories))
+                            Console.WriteLine(e);
+                        return 0;
+                    }
+                    if (!string.IsNullOrEmpty(relPath))
+                    {
+                        string src = relPath.Replace('/', '\\');
+                        if (!src.StartsWith("\\")) src = "\\" + src;
+                        if (ntfs.FileExists(src))
+                        {
+                            string dest = Path.Combine(outDir, Path.GetFileName(src));
+                            using var inStream = ntfs.OpenFile(src, FileMode.Open, FileAccess.Read);
+                            using var outFs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.Read);
+                            inStream.CopyTo(outFs);
+                            Console.WriteLine($"Extracted file to {dest}");
+                            return 0;
+                        }
+                        else if (ntfs.DirectoryExists(src))
+                        {
+                            ImagingUtility.NtfsExtractHelpers.ExtractNtfsDirectory(ntfs, src, outDir);
+                            Console.WriteLine($"Extracted directory to {outDir}");
+                            return 0;
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine($"Path not found in NTFS: {src}");
+                            return 2;
+                        }
+                    }
+                    else
+                    {
+                        // Extract entire volume tree (careful: could be large)
+                        ImagingUtility.NtfsExtractHelpers.ExtractNtfsDirectory(ntfs, "\\", outDir);
+                        Console.WriteLine($"Extracted NTFS volume to {outDir}");
+                        return 0;
+                    }
+                }
                 else if (cmd == "backup-disk")
                 {
                     // backup-disk --disk N --out-dir <dir> [--use-vss]
                     var diskArg = GetArgValue(args, "--disk");
                     var outDirArg = GetArgValue(args, "--out-dir");
                     var useVss = Array.Exists(args, a => a.Equals("--use-vss", StringComparison.OrdinalIgnoreCase));
+                    bool writeThrough = false; // default OFF (opt-in)
+                    if (Array.Exists(args, a => a.Equals("--write-through", StringComparison.OrdinalIgnoreCase))) writeThrough = true;
+                    else if (Array.Exists(args, a => a.Equals("--no-write-through", StringComparison.OrdinalIgnoreCase))) writeThrough = false;
                     int? parallel = null;
                     var parArg = GetArgValue(args, "--parallel");
                     if (!string.IsNullOrEmpty(parArg) && int.TryParse(parArg, out var pval) && pval > 0)
                         parallel = pval;
+                    var pipeDepthArg = GetArgValue(args, "--pipeline-depth");
+                    int pipelineDepth;
+                    int effectiveParallel;
+                    ComputeParallelDefaults(parallel, pipeDepthArg, out effectiveParallel, out pipelineDepth);
                     var parCtlFileB = GetArgValue(args, "--parallel-control-file");
                     var parCtlPipeB = GetArgValue(args, "--parallel-control-pipe");
                     if (string.IsNullOrEmpty(diskArg) || string.IsNullOrEmpty(outDirArg) || !int.TryParse(diskArg, out var diskNum))
                     {
-                        Console.Error.WriteLine("Usage: backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N]");
+                        Console.Error.WriteLine("Usage: backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through]");
                         return 1;
                     }
                     Console.WriteLine($"Building backup set for disk {diskNum} -> {outDirArg} (useVss={useVss}) ...");
                     var swBackup = System.Diagnostics.Stopwatch.StartNew();
-                    var getDesiredB = BuildParallelProvider(parallel, parCtlFileB, parCtlPipeB);
-                    await BackupSetBuilder.BuildBackupSetAsync(diskNum, outDirArg, useVss, parallel, getDesiredB);
+                    var getDesiredB = BuildParallelProvider(effectiveParallel, parCtlFileB, parCtlPipeB);
+                    await BackupSetBuilder.BuildBackupSetAsync(diskNum, outDirArg, useVss, effectiveParallel, getDesiredB, pipelineDepth, writeThrough);
                     swBackup.Stop();
                     Console.WriteLine($"Backup set complete. Elapsed: {ConsoleProgressScope.FormatTime(swBackup.Elapsed)}");
+                    return 0;
+                }
+                else if (cmd == "ntfs-serve")
+                {
+                    // ntfs-serve --in <image-file> --offset <bytes> [--host 127.0.0.1] [--port 18080]
+                    // or: ntfs-serve --set-dir <set> --partition <N|Letter> [--host] [--port]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: ntfs-serve --in <image-file> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18080]\n   or: ntfs-serve --set-dir <set> --partition <N|Letter> [--host] [--port]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    int port = 18080; if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var p)) port = p;
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    await ImagingUtility.NtfsHttpServer.ServeAsync(host, port, imgPath, volOffset, cts.Token);
+                    return 0;
+                }
+                else if (cmd == "ntfs-webdav")
+                {
+                    // ntfs-webdav --in <image-file> --offset <bytes> [--host 127.0.0.1] [--port 18081]
+                    // or: ntfs-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: ntfs-webdav --in <image-file> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18081]\n   or: ntfs-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    int port = 18081; if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var p)) port = p;
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    await ImagingUtility.NtfsWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token);
                     return 0;
                 }
                 else if (cmd == "restore-set")
@@ -348,6 +588,59 @@ namespace ImagingUtility
                     Console.WriteLine($"Dump complete. Elapsed: {ConsoleProgressScope.FormatTime(swDump.Elapsed)}  Avg: {avgD}/s");
                     return 0;
                 }
+                else if (cmd == "serve-proxy")
+                {
+                    // serve-proxy --in <image-file> [--host 127.0.0.1] [--port 11459] [--pipe NAME] [--cache-chunks 4] [--offset N] [--length N]
+                    // or: serve-proxy --set-dir <set> --partition <N|Letter> [...]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    if (string.IsNullOrEmpty(inArg) && (string.IsNullOrEmpty(setDirArg) || string.IsNullOrEmpty(partArg)))
+                    {
+                        Console.Error.WriteLine("Usage: serve-proxy --in <image-file> [--host 127.0.0.1] [--port 11459] [--pipe NAME] [--cache-chunks 4] [--offset N] [--length N]\n   or: serve-proxy --set-dir <set> --partition <N|Letter> [...]");
+                        return 1;
+                    }
+                    string imgPath = inArg ?? string.Empty;
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    var pipeName = GetArgValue(args, "--pipe");
+                    var cacheArg = GetArgValue(args, "--cache-chunks");
+                    var offArg = GetArgValue(args, "--offset");
+                    var lenArg = GetArgValue(args, "--length");
+                    long? resolvedOffset = null;
+                    long? resolvedLength = null;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out var voff, out var vlen))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                        resolvedOffset = voff;
+                        resolvedLength = vlen;
+                    }
+                    int port = 11459; if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var pval)) port = pval;
+                    int cache = 4; if (!string.IsNullOrEmpty(cacheArg) && int.TryParse(cacheArg, out var cval) && cval > 0) cache = cval;
+                    long? devOff = resolvedOffset; if (devOff == null && !string.IsNullOrEmpty(offArg) && long.TryParse(offArg, out var o)) devOff = Math.Max(0, o);
+                    long? devLen = resolvedLength; if (devLen == null && !string.IsNullOrEmpty(lenArg) && long.TryParse(lenArg, out var l)) devLen = Math.Max(0, l);
+                    if (!string.IsNullOrEmpty(imgPath)) inArg = imgPath;
+                    if (string.IsNullOrEmpty(inArg) || !File.Exists(inArg))
+                    {
+                        Console.Error.WriteLine("Input image not found after resolving partition manifest.");
+                        return 1;
+                    }
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    if (!string.IsNullOrWhiteSpace(pipeName))
+                    {
+                        Console.WriteLine($"Starting read-only proxy on pipe://{pipeName} for {inArg} ...");
+                        await DevioProxyServer.ServePipeAsync(pipeName!, inArg, cache, devOff, devLen, cts.Token);
+                        return 0;
+                    }
+                    Console.WriteLine($"Starting read-only proxy on tcp://{host}:{port} for {inArg} ...");
+                    await DevioProxyServer.ServeTcpAsync(host, port, inArg, cache, devOff, devLen, cts.Token);
+                    return 0;
+                }
             }
             catch (Exception ex)
             {
@@ -378,19 +671,103 @@ namespace ImagingUtility
             return v;
         }
 
+        // Decide defaults for parallel and pipeline-depth.
+        // Goal: total threads ~4 when available -> parallel=2, pipelineDepth=2.
+        // If cores limited, split as evenly as possible with minimum of 1.
+        private static void ComputeParallelDefaults(int? requestedParallel, string? pipelineDepthArg, out int effectiveParallel, out int pipelineDepth)
+        {
+            // If user explicitly set parallel, use it (clamp to >=1)
+            int cores = Math.Max(1, Environment.ProcessorCount);
+            effectiveParallel = Math.Max(1, requestedParallel ?? 0);
+            // If not provided, choose based on cores
+            if (effectiveParallel == 0)
+            {
+                if (cores >= 4) effectiveParallel = 2; // leave room for writer thread and I/O
+                else if (cores == 3) effectiveParallel = 2;
+                else effectiveParallel = 1;
+            }
+            // Pipeline depth: if provided, honor it; else pick to target ~4 total concurrency
+            if (!string.IsNullOrEmpty(pipelineDepthArg) && int.TryParse(pipelineDepthArg, out var pd) && pd >= 1 && pd <= 8)
+            {
+                pipelineDepth = pd;
+            }
+            else
+            {
+                int targetTotal = 4;
+                pipelineDepth = Math.Max(1, Math.Min(8, targetTotal / Math.Max(1, effectiveParallel)));
+                if (effectiveParallel * pipelineDepth < targetTotal && pipelineDepth < 8)
+                    pipelineDepth = Math.Min(8, pipelineDepth + 1);
+            }
+        }
+
+        // Default chunk size selection: prefer 512 MiB, but fallback to 64 MiB if memory is constrained.
+        // Heuristic: require at least (parallel * pipelineDepth * chunk + margin) free memory.
+        private static int ResolveDefaultChunkSize(int effectiveParallel, int pipelineDepth)
+        {
+            const long preferred = 512L * 1024 * 1024; // 512 MiB
+            const long fallback = 64L * 1024 * 1024;   // 64 MiB
+            long neededPreferred = (long)effectiveParallel * pipelineDepth * preferred + (128L * 1024 * 1024);
+            long free = GetApproxAvailableMemory();
+            if (free <= 0)
+                return (int)preferred; // if unknown, be optimistic
+            return free >= neededPreferred ? (int)preferred : (int)fallback;
+        }
+
+        private static long GetApproxAvailableMemory()
+        {
+            try
+            {
+                MEMORYSTATUSEX mem = new MEMORYSTATUSEX();
+                if (GlobalMemoryStatusEx(mem))
+                {
+                    ulong avail = mem.ullAvailPhys;
+                    return (long)Math.Min(avail, long.MaxValue);
+                }
+            }
+            catch { }
+            return 0;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private class MEMORYSTATUSEX
+        {
+            public uint dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx([System.Runtime.InteropServices.In] MEMORYSTATUSEX lpBuffer);
+
     static void PrintHelp()
         {
             Console.WriteLine("ImagingUtility - simple prototype\n");
             Console.WriteLine("Commands:");
             Console.WriteLine("  list\t\tList physical drives");
-            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tCreate or resume a chunked image (default: --used-only, 64M chunk)".Replace(" ", string.Empty));
-            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tSnapshot multiple volumes (default: --used-only, 64M chunk)");
-            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss]\tCreate a full-disk backup set (manifest + per-partition images)");
+            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, dynamic parallel/pipeline targeting ~4 total)".Replace(" ", string.Empty));
+            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
+            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
             Console.WriteLine("  restore-set --set-dir <dir> --out-raw <file>\tReconstruct a raw disk image from a backup set");
             Console.WriteLine("  restore-physical --set-dir <dir> --disk N\tWrite a backup set directly to a physical disk (DESTRUCTIVE)");
             Console.WriteLine("  verify --in <file> [--parallel N] [--quick]\tVerify chunk checksums and integrity (use --quick for faster sampling-based verify)");
             Console.WriteLine("  export-raw --in <image> --out <raw>\tExport compressed image to raw disk file");
             Console.WriteLine("  export-vhd --in <image> --out <vhd>\tExport compressed image to fixed VHD (mountable in Windows)");
+            Console.WriteLine("  export-range --in <image> --offset <bytes> --length <bytes> [--out <file>]\tRead an arbitrary range directly from a compressed image");
+            Console.WriteLine("  ntfs-extract --in <image> --offset <partition-start-bytes> --out-dir <dir> [--path <relative>] [--list-only]\tBrowse or extract files using a userspace NTFS reader (bypasses ACLs; read-only)");
+            Console.WriteLine("             or: ntfs-extract --set-dir <set> --partition <N|Letter> --out-dir <dir> [--path <rel>] [--list-only]");
+            Console.WriteLine("  ntfs-serve --in <image> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18080]\tHTTP browse/download for NTFS content via userspace reader (bypasses ACLs; read-only)");
+            Console.WriteLine("             or: ntfs-serve --set-dir <set> --partition <N|Letter> [--host] [--port]");
+            Console.WriteLine("  ntfs-webdav --in <image> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18081]\tRead-only WebDAV view; map with 'net use Z: http://host:port/'");
+            Console.WriteLine("             or: ntfs-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+            Console.WriteLine("  serve-proxy --in <image> [--host 127.0.0.1] [--port 11459] [--pipe NAME] [--cache-chunks 4] [--offset N] [--length N]\tServe a read-only block device over TCP or named pipe for DevIO/Proxy-compatible clients; optionally window a partition with --offset/--length");
+            Console.WriteLine("             or: serve-proxy --set-dir <set> --partition <N|Letter> [...]");
             Console.WriteLine("  dump-pt --device \\ \\ \\ . \\ \\ PhysicalDriveN --out <file> [--bytes N]\tDump first bytes (MBR/GPT) for system disk backups".Replace(" ", string.Empty));
         }
 
@@ -441,7 +818,74 @@ namespace ImagingUtility
             return string.IsNullOrEmpty(s) ? "vol" : s;
         }
 
-    private static async Task<int> ImageMultipleVolumes(string volumesArg, string outDir, bool useVss, bool resume, long? maxBytes, bool usedOnly, int? chunkSize, int? parallel, Func<int>? getDesired)
+        // Resolve a partition from a backup set manifest by index or drive letter.
+        // Returns true if successful, providing an image path and volume start offset (and optional length).
+        private static bool TryResolvePartitionFromSet(string setDir, string partitionSelector, out string imagePath, out long volumeOffset)
+            => TryResolvePartitionFromSet(setDir, partitionSelector, out imagePath, out volumeOffset, out _);
+
+        private static bool TryResolvePartitionFromSet(string setDir, string partitionSelector, out string imagePath, out long volumeOffset, out long? volumeLength)
+        {
+            imagePath = string.Empty; volumeOffset = -1; volumeLength = null;
+            try
+            {
+                string manifestPath = Path.Combine(setDir, "backup.manifest.json");
+                if (!File.Exists(manifestPath)) return false;
+                var manifest = BackupSetIO.Load(manifestPath);
+                PartitionEntry? match = null;
+                // Partition by index (1-based)
+                if (int.TryParse(partitionSelector.TrimEnd(':'), out var idx))
+                {
+                    match = manifest.Partitions.Find(p => p.Index == idx);
+                }
+                else
+                {
+                    // Try drive letter: 'C' or 'C:'
+                    string letter = partitionSelector.Trim();
+                    if (letter.Length >= 1 && char.IsLetter(letter[0]))
+                    {
+                        letter = char.ToUpperInvariant(letter[0]).ToString();
+                        match = manifest.Partitions.Find(p => (p.DriveLetter ?? string.Empty).Equals(letter, StringComparison.OrdinalIgnoreCase));
+                    }
+                }
+                if (match == null) return false;
+                // Prefer a compressed image file for this partition
+                if (!string.IsNullOrEmpty(match.ImageFile))
+                {
+                    var candidate = Path.Combine(setDir, match.ImageFile);
+                    if (!File.Exists(candidate)) return false;
+                    imagePath = candidate;
+                    volumeOffset = 0;
+                    volumeLength = match.Size > 0 ? match.Size : null;
+                    return true;
+                }
+                // Otherwise, if we only have a raw dump file, we still can serve it
+                if (!string.IsNullOrEmpty(match.RawDump))
+                {
+                    var candidate = Path.Combine(setDir, match.RawDump);
+                    if (!File.Exists(candidate)) return false;
+                    imagePath = candidate;
+                    volumeOffset = 0;
+                    volumeLength = match.Size > 0 ? match.Size : null;
+                    return true;
+                }
+                // Fallback: If no per-partition image file, try a top-level disk image if present and apply offset/length
+                var diskImg = Directory.EnumerateFiles(setDir, "*.skzimg").FirstOrDefault();
+                if (diskImg != null)
+                {
+                    imagePath = diskImg;
+                    volumeOffset = Math.Max(0, match.StartingOffset);
+                    volumeLength = match.Size > 0 ? match.Size : null;
+                    return true;
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+    private static async Task<int> ImageMultipleVolumes(string volumesArg, string outDir, bool useVss, bool resume, long? maxBytes, bool usedOnly, int? chunkSize, int? parallel, Func<int>? getDesired, bool writeThrough, int pipelineDepth)
         {
             var vols = ParseVolumes(volumesArg).ToList();
             if (vols.Count == 0)
@@ -500,7 +944,8 @@ namespace ImagingUtility
                     List<IndexEntry>? existingIndex = null;
                     long startOffset = 0;
                     FileMode mode = append ? FileMode.Open : FileMode.Create;
-                    using var outStream = new FileStream(outPath, mode, FileAccess.ReadWrite, FileShare.None);
+                    var fopts = writeThrough ? FileOptions.WriteThrough : FileOptions.None;
+                    using var outStream = new FileStream(outPath, mode, FileAccess.ReadWrite, FileShare.None, 4096, fopts);
                     if (append)
                     {
                         try
@@ -519,13 +964,22 @@ namespace ImagingUtility
                         }
                     }
 
-                    var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, chunkSize ?? (64 * 1024 * 1024), append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
+                    int par = Math.Max(1, parallel ?? Environment.ProcessorCount);
+                    int finalChunk = chunkSize ?? ResolveDefaultChunkSize(par, pipelineDepth);
+                    var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, finalChunk, append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
                     using (var p = new ConsoleProgressScope($"Imaging {s.volume}"))
                     {
-                        if (usedOnly && reader.TryGetNtfsBytesPerCluster(out _))
-                            writer.WriteAllocatedOnly(reader, (done, total) => p.Report(done, total), parallel, getDesired);
+                        bool canUsedOnly = usedOnly && reader.TryGetNtfsBytesPerCluster(out _);
+                        if (canUsedOnly && startOffset == 0)
+                        {
+                            writer.WriteAllocatedOnly(reader, (done, total) => p.Report(done, total), parallel, getDesired, pipelineDepth);
+                        }
                         else
-                            await writer.WriteFromAsync(reader, startOffset, maxBytes, (done, total) => p.Report(done, total), parallel, getDesired);
+                        {
+                            if (canUsedOnly && startOffset > 0)
+                                Console.WriteLine("[info] Resume with --used-only not yet optimized; falling back to full-range resume for correctness.");
+                            await writer.WriteFromAsync(reader, startOffset, maxBytes, (done, total) => p.Report(done, total), parallel, getDesired, pipelineDepth);
+                        }
                     }
                     Console.WriteLine($"Completed {outPath}");
                 }
@@ -707,6 +1161,32 @@ namespace ImagingUtility
                 catch { }
                 return System.Threading.Volatile.Read(ref currentValue);
             };
+        }
+    }
+}
+
+namespace ImagingUtility
+{
+    internal static class NtfsExtractHelpers
+    {
+        public static void ExtractNtfsDirectory(DiscUtils.Ntfs.NtfsFileSystem ntfs, string ntfsPath, string destRoot)
+        {
+            foreach (var dir in ntfs.GetDirectories(ntfsPath))
+            {
+                var rel = dir.TrimStart('\\');
+                var outDir = Path.Combine(destRoot, rel);
+                Directory.CreateDirectory(outDir);
+                ExtractNtfsDirectory(ntfs, dir, destRoot);
+            }
+            foreach (var file in ntfs.GetFiles(ntfsPath))
+            {
+                var rel = file.TrimStart('\\');
+                var outPath = Path.Combine(destRoot, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+                using var inStream = ntfs.OpenFile(file, FileMode.Open, FileAccess.Read);
+                using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                inStream.CopyTo(outFs);
+            }
         }
     }
 }

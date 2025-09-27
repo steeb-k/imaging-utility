@@ -11,6 +11,8 @@
   <ItemGroup>
     <PackageReference Include="ZstdSharp.Port" Version="0.8.6" />
     <PackageReference Include="System.Management" Version="7.0.0" />
+  <PackageReference Include="DiscUtils.Core" Version="0.16.13" />
+    <PackageReference Include="DiscUtils.Ntfs" Version="0.16.13" />
   </ItemGroup>
 
 </Project>

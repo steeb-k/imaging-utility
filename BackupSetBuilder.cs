@@ -8,7 +8,7 @@ namespace ImagingUtility
 {
     internal static class BackupSetBuilder
     {
-    public static async Task BuildBackupSetAsync(int diskNumber, string outDir, bool useVss, int? parallel = null, Func<int>? getDesired = null)
+    public static async Task BuildBackupSetAsync(int diskNumber, string outDir, bool useVss, int? parallel = null, Func<int>? getDesired = null, int pipelineDepth = 2, bool writeThrough = false)
         {
             Directory.CreateDirectory(outDir);
 
@@ -68,15 +68,20 @@ namespace ImagingUtility
                     string outPath = Path.Combine(outDir, imgName);
 
                     using var reader = new RawDeviceReader(device);
-                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-                    var writer = new ChunkedZstdWriter(outFs, reader.SectorSize, 64 * 1024 * 1024, deviceLength: reader.TotalSize);
+                    var fopts = writeThrough ? FileOptions.WriteThrough : FileOptions.None;
+                    using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, fopts);
+                    // Prefer larger chunks for throughput; fallback to 64MiB if memory constrained.
+                    int par = Math.Max(1, parallel ?? Environment.ProcessorCount);
+                    int pipeline = Math.Max(1, pipelineDepth);
+                    int chunk = ResolveDefaultChunkSizeSafe(par, pipeline);
+                    var writer = new ChunkedZstdWriter(outFs, reader.SectorSize, chunk, deviceLength: reader.TotalSize);
                     using (var prog = new ConsoleProgressScope($"Imaging {vol}"))
                     {
                         // Default to used-only for NTFS sets (faster, smaller); fall back to full if bitmap not available
                         if (reader.TryGetNtfsBytesPerCluster(out _))
-                            writer.WriteAllocatedOnly(reader, (done, total) => prog.Report(done, total), parallel, getDesired);
+                            writer.WriteAllocatedOnly(reader, (done, total) => prog.Report(done, total), parallel, getDesired, pipelineDepth);
                         else
-                            await writer.WriteFromAsync(reader, 0, p.Size, (done, total) => prog.Report(done, total), parallel, getDesired); // cap to partition size
+                            await writer.WriteFromAsync(reader, 0, p.Size, (done, total) => prog.Report(done, total), parallel, getDesired, pipelineDepth); // cap to partition size
                     }
 
                     manifest.Partitions.Add(new PartitionEntry
@@ -328,5 +333,49 @@ namespace ImagingUtility
                 if (char.IsLetterOrDigit(ch)) allowed.Add(ch);
             return new string(allowed.ToArray());
         }
+
+        // Local copy of default chunk heuristic (prefer 512MiB, fallback to 64MiB if available memory is low)
+        private static int ResolveDefaultChunkSizeSafe(int effectiveParallel, int pipelineDepth)
+        {
+            const long preferred = 512L * 1024 * 1024; // 512 MiB
+            const long fallback = 64L * 1024 * 1024;   // 64 MiB
+            long neededPreferred = (long)effectiveParallel * pipelineDepth * preferred + (128L * 1024 * 1024);
+            long free = GetApproxAvailableMemorySafe();
+            if (free <= 0) return (int)preferred;
+            return free >= neededPreferred ? (int)preferred : (int)fallback;
+        }
+
+        private static long GetApproxAvailableMemorySafe()
+        {
+            try
+            {
+                var mem = new MEMORYSTATUSEX();
+                if (GlobalMemoryStatusEx(mem))
+                {
+                    ulong avail = mem.ullAvailPhys;
+                    return (long)Math.Min(avail, long.MaxValue);
+                }
+            }
+            catch { }
+            return 0;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        private class MEMORYSTATUSEX
+        {
+            public uint dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX));
+            public uint dwMemoryLoad;
+            public ulong ullTotalPhys;
+            public ulong ullAvailPhys;
+            public ulong ullTotalPageFile;
+            public ulong ullAvailPageFile;
+            public ulong ullTotalVirtual;
+            public ulong ullAvailVirtual;
+            public ulong ullAvailExtendedVirtual;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool GlobalMemoryStatusEx([System.Runtime.InteropServices.In] MEMORYSTATUSEX lpBuffer);
     }
 }

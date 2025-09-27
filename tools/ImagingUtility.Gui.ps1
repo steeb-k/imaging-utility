@@ -95,7 +95,10 @@ function Start-Imaging([string]$ExeOrDll, [string]$Device, [string]$OutPath, [ha
   if ($Opts.useVss) { $cliList += '--use-vss' }
   if ($Opts.resume) { $cliList += '--resume' }
   if ($Opts.allBlocks) { $cliList += '--all-blocks' }
+  # App defaults to write-through OFF; only add opt-in when checked
+  if ($Opts.writeThrough) { $cliList += '--write-through' }
   if ($Opts.parallel -gt 0) { $cliList += @('--parallel', [string]$Opts.parallel) }
+  if ($Opts.pipelineDepth -gt 0) { $cliList += @('--pipeline-depth', [string]$Opts.pipelineDepth) }
   if ($Opts.parFile) { $cliList += @('--parallel-control-file', $Opts.parFile) }
   if ($Opts.parPipe) { $cliList += @('--parallel-control-pipe', $Opts.parPipe) }
 
@@ -185,31 +188,39 @@ $form.Controls.AddRange(@($lblFile, $tbFile))
 $cbVss = New-Checkbox 'Use VSS snapshot' 12 100 $true
 $cbResume = New-Checkbox 'Resume if image exists' 180 100 $false
 $cbUsedOnly = New-Checkbox 'Used-only (NTFS)' 380 100 $true
-$form.Controls.AddRange(@($cbVss, $cbResume, $cbUsedOnly))
+$cbWriteThrough = New-Checkbox 'Write-through (bypass OS cache)' 12 122 $false
+$form.Controls.AddRange(@($cbVss, $cbResume, $cbUsedOnly, $cbWriteThrough))
 
-$lblPar = New-Label 'Parallelism:' 12 134
+$lblPar = New-Label 'Parallelism:' 12 148
 $cores = [Environment]::ProcessorCount
-$trkPar = New-TrackBar 100 128 1 ($cores*2) $cores
-$lblParVal = New-Label $cores 470 134
+$trkPar = New-TrackBar 100 142 1 ($cores*2) $cores
+$lblParVal = New-Label $cores 470 148
 $form.Controls.AddRange(@($lblPar, $trkPar, $lblParVal))
 $trkPar.Add_ValueChanged({ $lblParVal.Text = $trkPar.Value })
 
-$cbLive = New-Checkbox 'Enable live control (file+pipe)' 12 176 $true
+## Pipeline depth controls
+$lblPipe = New-Label 'Pipeline depth:' 12 174
+$trkPipe = New-TrackBar 100 168 1 8 2
+$lblPipeVal = New-Label 2 470 174
+$form.Controls.AddRange(@($lblPipe, $trkPipe, $lblPipeVal))
+$trkPipe.Add_ValueChanged({ $lblPipeVal.Text = $trkPipe.Value })
+
+$cbLive = New-Checkbox 'Enable live control (file+pipe)' 12 214 $true
 $form.Controls.Add($cbLive)
 
-$cbSeparate = New-Checkbox 'Launch in separate console (stable)' 300 176 $true
+$cbSeparate = New-Checkbox 'Launch in separate console (stable)' 300 214 $true
 $form.Controls.Add($cbSeparate)
 
 $tbLog = New-Object System.Windows.Forms.TextBox
-$tbLog.Location = New-Object System.Drawing.Point(12, 240)
+$tbLog.Location = New-Object System.Drawing.Point(12, 300)
 $tbLog.Size = New-Object System.Drawing.Size(606, 240)
 $tbLog.Multiline = $true
 $tbLog.ScrollBars = 'Vertical'
 $tbLog.ReadOnly = $true
 $form.Controls.Add($tbLog)
 
-$btnStart = New-Button 'Start' 12 188 90 28
-$btnStop  = New-Button 'Stop'  110 188 90 28
+$btnStart = New-Button 'Start' 12 236 90 28
+$btnStop  = New-Button 'Stop'  110 236 90 28
 $btnStop.Enabled = $false
 $form.Controls.AddRange(@($btnStart, $btnStop))
 
@@ -259,7 +270,7 @@ $btnStart.Add_Click({
       $parPipe = 'ImgCtl-' + [Guid]::NewGuid().ToString('N')
     } else { $parFile = $null; $parPipe = $null }
 
-    $opts = @{ useVss = $cbVss.Checked; resume = $cbResume.Checked; allBlocks = (-not $cbUsedOnly.Checked); parallel = $par; parFile = $parFile; parPipe = $parPipe }
+  $opts = @{ useVss = $cbVss.Checked; resume = $cbResume.Checked; allBlocks = (-not $cbUsedOnly.Checked); writeThrough = $cbWriteThrough.Checked; parallel = $par; pipelineDepth = [int]$trkPipe.Value; parFile = $parFile; parPipe = $parPipe }
     $tbLog.Clear()
     $tbLog.AppendText("Starting imaging $device -> $outFile`r`n") | Out-Null
     if (-not (Test-IsAdmin)) { $tbLog.AppendText("[WARN] Not running as Administrator; ImagingUtility will fail to open raw devices.`r`n") | Out-Null }

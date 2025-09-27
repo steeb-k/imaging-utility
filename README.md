@@ -2,31 +2,39 @@
 ImagingUtility
 ===============
 
-Prototype Windows disk/volume imaging utility (C#/.NET 8).
+Prototype Windows disk/volume imaging utility (C# / .NET 8) with VSS snapshots, compressed chunked format, resume, verification, multi-volume imaging, and a simple GUI.
 
-Goals
-- Create sector-aware, chunked, zstd-compressed images of physical disks and volumes.
-- Support VSS snapshots for consistent live-volume imaging (now implemented).
-- Support raw sector-by-sector imaging for devices that cannot be snapshotted.
-- Produce a documented open image format that supports resume and verification.
+Key features
+- Open, chunked image format (v2) with per-chunk SHA-256, index, and tail.
+- Used-blocks-only (NTFS) imaging by default; full-block mode via --all-blocks.
+- Compression: zstd (pure C#), default 512 MiB chunks (memory-aware fallback to 64 MiB), configurable via --chunk-size.
+- Resume: --resume continues from last valid chunk and rewrites the footer.
+- Verify: full verify, or fast sampling-based verify via verify --quick.
+- Parallel pipeline with runtime control:
+  - --parallel N (default: cores)
+  - Live control: --parallel-control-file <path> and/or --parallel-control-pipe <name>
+- Smoothing: configurable pipeline window via --pipeline-depth N (default chosen with parallel to target ~4 total workers).
+- Write-through is OFF by default (uses OS cache); opt in with --write-through.
+- Multi-volume snapshot imaging (one file per volume) and full-disk backup sets.
+- GUI (PowerShell/WinForms) to pick a drive, output folder, used-only, VSS, parallelism, pipeline depth, write-through, and live control.
 
-Current state
-- CLI with `list`, `image`, `verify`, `export-raw`, `export-vhd`, `backup-disk`, `restore-set`, `restore-physical`, and `dump-pt` commands.
-- Physical drive enumeration and a RawDeviceReader that opens `\\.\\PhysicalDriveN` and reads sector-aware data.
-- Chunked Zstd writer with header and per-chunk metadata (index, offset, sizes, SHA256) and compressed payload.
-- Footer index for resume/verify. `--resume` can append to an existing image and continue from the last chunk.
-- VSS support via WMI: uses `Win32_ShadowCopy` to create and delete snapshots for live-volume imaging.
-- Multi-volume snapshot support: `image --volumes C:,D: --out-dir <dir> --use-vss` creates per-volume snapshots via a snapshot set and writes one image per volume.
-- Full-disk backup sets: `backup-disk --disk N --out-dir <dir> --use-vss` creates a container directory with a JSON manifest, a small partition-table dump, compressed per-volume images for VSS-capable partitions, and raw dumps for non-VSS ones (EFI/MSR/Recovery). `restore-set` can reconstruct a single raw disk file from the set, or `restore-physical` writes back to a disk.
-- Used-blocks-only imaging for NTFS volumes is the default (queries FSCTL_GET_VOLUME_BITMAP on VSS snapshots) to skip free clusters. Opt out with `--all-blocks`.
-- Configurable chunk size via `--chunk-size` (supports suffixes K/M/G). Default chunk size is 64 MiB.
-- Parallel pipelines for imaging and verification. Control worker count with `--parallel N` (default: max cores). Higher values increase CPU and memory usage.
-- Fast verification mode: `verify --quick` performs a sampling-based integrity check (first, last, and periodic chunks) for much faster verification with reduced coverage.
+Defaults
+- Mode: used-only (NTFS volumes)
+- Chunk: 512 MiB preferred, automatic fallback to 64 MiB if memory is constrained
+- Parallel: chosen dynamically to target ~4 total workers with pipeline depth
+- Pipeline depth: chosen dynamically; bounded capacity = parallel × depth
+- Write-through: OFF (use --write-through to enable)
 
 Supported platforms
-- Windows x64 and Windows ARM64 are supported. Build or publish with the appropriate RID.
+- Windows x64 and Windows ARM64
 
-Publish single-file binaries
+Build
+```powershell
+dotnet restore
+dotnet build -c Release
+```
+
+Publish single-file binaries (optional)
 ```powershell
 # x64
 dotnet publish .\ImagingUtility.csproj -c Release -r win-x64 -p:PublishSingleFile=true --self-contained true
@@ -34,95 +42,98 @@ dotnet publish .\ImagingUtility.csproj -c Release -r win-x64 -p:PublishSingleFil
 dotnet publish .\ImagingUtility.csproj -c Release -r win-arm64 -p:PublishSingleFile=true --self-contained true
 ```
 
-Usage examples
-- List drives:
-  dotnet run -- list
-- Image a physical drive (raw):
-  dotnet run -- image --device \\.
-PhysicalDrive1 --out C:\tmp\drive1.skzimg
-- Image a live volume with VSS (WMI):
-  dotnet run -- image --device C: --use-vss --out C:\tmp\C-drive.skzimg --parallel 6
-- Image a live NTFS volume with used-blocks-only and larger chunks:
-  dotnet run -- image --device C: --use-vss --used-only --chunk-size 16M --out C:\tmp\C-usedonly.skzimg --parallel 6
-- Resume an interrupted image (appends more chunks and rewrites footer index):
-  dotnet run -- image --device \\.
-PhysicalDrive1 --out C:\tmp\drive1.skzimg --resume
-- Multi-volume snapshots (writes one image per volume in the directory):
-  dotnet run -- image --volumes C:,D: --out-dir C:\images --use-vss --used-only --parallel 6
-- Full-disk backup set (container + manifest + per-partition files):
-  dotnet run -- backup-disk --disk 0 --out-dir C:\Backups\Disk0-Set --use-vss --parallel 6
-- Verify an image (full):
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --parallel 6
-- Quick verify (sampling):
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --quick --parallel 6
-- Export an image to raw:
-  dotnet run -- export-raw --in C:\tmp\drive1.skzimg --out C:\tmp\drive1.raw
-- Restore from a backup set to a raw disk image:
-  dotnet run -- restore-set --set-dir C:\Backups\Disk0-Set --out-raw C:\Backups\Disk0-restored.raw
-- Restore a backup set directly to a physical disk (DESTRUCTIVE):
-  dotnet run -- restore-physical --set-dir C:\Backups\Disk0-Set --disk 1
+CLI commands
+- list – list physical drives
+- image – image a device or volumes
+- verify – verify chunk integrity (full or quick)
+- export-raw / export-vhd – export to raw or fixed VHD
+- export-range – read an arbitrary byte range directly from a compressed image
+- serve-proxy – serve a read-only block device over TCP or a named pipe for mounting via DevIo/Proxy-compatible clients
+- ntfs-extract – extract files/folders from an NTFS partition inside a compressed image (ACLs bypassed)
+- ntfs-serve – browse/download NTFS contents over HTTP (ACLs bypassed)
+- ntfs-webdav – serve NTFS over WebDAV (read-only); map a drive letter with the Windows WebDAV redirector
+- backup-disk – create a full-disk backup set (manifest + per-partition files)
+- restore-set / restore-physical – rehydrate a set to raw or to a disk
+- dump-pt – dump first N bytes (MBR/GPT region)
 
+Device path guidance
+- For raw device access: use \\.-prefixed paths, e.g., \\.\PhysicalDrive1 or \\.\C:
+- For a drive letter without VSS, \\.\D: is required. With VSS, you can pass D: (or D:\) and let the tool snapshot and redirect.
+
+Examples
 ```powershell
-cd C:\Users\steeb\imaging-utility
-dotnet restore
-dotnet build -c Release
+# Admin PowerShell recommended
+
+# Image D: with defaults (used-only, write-through OFF, dynamic parallel+pipelining)
+.\bin\Release\net8.0\ImagingUtility.exe image --device D: --out 'F:\Backups\D.skzimg'
+
+# Use VSS for a live system volume
+.\bin\Release\net8.0\ImagingUtility.exe image --device C: --use-vss --out 'F:\Backups\C.skzimg'
+
+# Increase smoothing window and adjust parallelism
+.\bin\Release\net8.0\ImagingUtility.exe image --device D: --out 'F:\Backups\D.skzimg' --parallel 8 --pipeline-depth 3
+
+# Opt in to write-through (reduces OS cache burstiness; may reduce peaks)
+.\bin\Release\net8.0\ImagingUtility.exe image --device D: --out 'F:\Backups\D.skzimg' --write-through
+
+# Multi-volume snapshot set
+.\bin\Release\net8.0\ImagingUtility.exe image --volumes C:,D: --out-dir 'F:\Backups' --use-vss
+
+# Full-disk backup set (manifest + images + raw dumps)
+.\bin\Release\net8.0\ImagingUtility.exe backup-disk --disk 0 --out-dir 'F:\Backups\Disk0-Set'
+
+# Verify (full)
+.\bin\Release\net8.0\ImagingUtility.exe verify --in 'F:\Backups\D.skzimg'
+# Quick verify (sampling)
+.\bin\Release\net8.0\ImagingUtility.exe verify --in 'F:\Backups\D.skzimg' --quick
+
+# Export an arbitrary range without full extraction
+.\bin\Release\net8.0\ImagingUtility.exe export-range --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --length 4096 --out '.\sector-2048.bin'
+
+# Serve image for mounting via DevIo/Proxy (TCP)
+.\bin\Release\net8.0\ImagingUtility.exe serve-proxy --in 'F:\Backups\D.skzimg' --host 127.0.0.1 --port 11459
+
+# Serve a specific partition window (offset/length) and use a named pipe
+.\bin\Release\net8.0\ImagingUtility.exe serve-proxy --in 'F:\Backups\Disk0-D.skzimg' --pipe SkzMount --offset 1048576 --length 536870912
+
+# Browse NTFS contents (bypasses ACLs)
+.\bin\Release\net8.0\ImagingUtility.exe ntfs-serve --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --port 18080
+# Then visit http://127.0.0.1:18080/ in a browser
+
+# Extract a specific file or entire directory tree (bypasses ACLs)
+.\bin\Release\net8.0\ImagingUtility.exe ntfs-extract --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --path 'Users\SomeUser\AppData' --out-dir .\extract
+# Or list all files
+.\bin\Release\net8.0\ImagingUtility.exe ntfs-extract --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --list-only --out-dir NUL
+
+# Map as a drive letter via WebDAV (read-only; bypasses ACLs)
+.\bin\Release\net8.0\ImagingUtility.exe ntfs-webdav --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --port 18081
+# In another admin PowerShell, ensure WebClient is running and map a drive:
+Start-Service WebClient
+net use Z: http://127.0.0.1:18081/ /persistent:no
 ```
 
-Usage examples
-- List drives:
-  dotnet run -- list
-  dotnet run -- image --device \\.\\PhysicalDrive1 --out C:\tmp\drive1.skzimg
- Image a physical drive (raw):
-  dotnet run -- image --device \\.\\PhysicalDrive1 --out C:\tmp\drive1.skzimg
-  dotnet run -- image --device C: --use-vss --out C:\tmp\C-drive.skzimg --parallel 6
- Image a live volume with VSS (WMI):
-  dotnet run -- image --device C: --use-vss --out C:\tmp\C-drive.skzimg --parallel 6
-  dotnet run -- image --device C: --use-vss --used-only --chunk-size 16M --out C:\tmp\C-usedonly.skzimg --parallel 6
- Image a live NTFS volume with used-blocks-only and larger chunks:
-  dotnet run -- image --device C: --use-vss --used-only --chunk-size 16M --out C:\tmp\C-usedonly.skzimg --parallel 6
-  dotnet run -- image --device \\.\\PhysicalDrive1 --out C:\tmp\drive1.skzimg --resume
- Resume an interrupted image (appends more chunks and rewrites footer index):
-  dotnet run -- image --device \\.\\PhysicalDrive1 --out C:\tmp\drive1.skzimg --resume
-  dotnet run -- image --volumes C:,D: --out-dir C:\images --use-vss --used-only --parallel 6
- Verify an image (full):
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --parallel 6
-  dotnet run -- backup-disk --disk 0 --out-dir C:\Backups\Disk0-Set --use-vss
- Quick verify (sampling):
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --quick --parallel 6
-  dotnet run -- restore-set --set-dir C:\Backups\Disk0-Set --out-raw C:\Backups\Disk0-restored.raw
- To capture a consistent image of your current C: volume using VSS:
-  dotnet run -- image --device C: --use-vss --used-only --chunk-size 16M --parallel 6 --out C:\tmp\system-C.skzimg
-  dotnet run -- restore-physical --set-dir C:\Backups\Disk0-Set --disk 1
- Verify
-  dotnet run -- verify --in C:\tmp\system-C.skzimg --parallel 6
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --parallel 6
- or quick verification (sampling)
-  dotnet run -- verify --in C:\tmp\system-C.skzimg --quick --parallel 6
-- Quick verify (sampling):
-  dotnet run -- verify --in C:\tmp\drive1.skzimg --quick --parallel 6
+Live parallelism control
+- File: create a text file with an integer; the app polls it periodically
+  - --parallel-control-file C:\temp\par.txt
+- Named pipe: send a single integer line to the named pipe
+  - --parallel-control-pipe MyPipeName
 
-System disk imaging (live OS)
-- To capture a consistent image of your current C: volume using VSS:
+GUI (optional)
+- Launch: `powershell -ExecutionPolicy Bypass -File .\tools\ImagingUtility.Gui.ps1`
+- Features: select drive, output folder/file, VSS, resume, used-only, write-through (default OFF), parallelism slider, pipeline depth slider, live control (file + pipe), and an option to launch in a separate console for stability.
 
-```powershell
-# Admin PowerShell
-C:\Users\steeb\imaging-utility\bin\Release\net8.0\ImagingUtility.exe `
-  image --device C: `
-  --use-vss `
-  --used-only `
-  --chunk-size 16M `
-  --parallel 6 `
-  --out C:\tmp\system-C.skzimg
-
-# Verify
-C:\Users\steeb\imaging-utility\bin\Release\net8.0\ImagingUtility.exe `
-  verify --in C:\tmp\system-C.skzimg --parallel 6
-# or quick verification (sampling)
-C:\Users\steeb\imaging-utility\bin\Release\net8.0\ImagingUtility.exe `
-  verify --in C:\tmp\system-C.skzimg --quick --parallel 6
-```
+Notes
+- Run as Administrator to access raw devices.
+- Resume with used-only currently falls back to a full-range resume for correctness.
+- Write-through reduces OS cache burstiness; disabling it can increase peaks but may introduce periodic stalls due to cache flushes.
+- When mounting an image via DevIo/Proxy (AIM/ImDisk), Windows enforces NTFS ACLs from the captured volume. To access folders you normally can’t (even as admin), either:
+  - Use the userspace tools here (ntfs-extract / ntfs-serve) which bypass ACLs by reading the filesystem structures directly, or
+  - Use tools that leverage SeBackupPrivilege (e.g., robocopy /B) on the mounted volume.
+- WebDAV mapping (ntfs-webdav) provides an Explorer-friendly, read-only view that bypasses ACLs. Requires the WebClient service. For large bulk copies, direct extraction may be faster.
 
 Future prospects
-- Direct mount of compressed images via a proxy target compatible with Arsenal Image Mounter (DevIo/Proxy).
+- Optional: IMDPROXY compatibility for DevIo/Proxy clients if ever needed (de-prioritized since WebDAV meets current needs).
 - Self-contained single-exe publish and signed binaries.
-````
+System disk imaging (live OS)
+
+More: see docs/mounting.md for a step-by-step mounting and access guide.

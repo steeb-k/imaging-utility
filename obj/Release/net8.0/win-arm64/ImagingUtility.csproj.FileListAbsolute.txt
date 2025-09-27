@@ -199,3 +199,6 @@ C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\mscordaccore_arm64_a
 C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\mscordbi.dll
 C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\mscorrc.dll
 C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\msquic.dll
+c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Core.dll
+c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Ntfs.dll
+c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Streams.dll
