@@ -220,18 +220,39 @@ namespace ImagingUtility
                     if (!string.IsNullOrEmpty(parArg) && int.TryParse(parArg, out var pval) && pval > 0)
                         parallel = pval;
                     bool quick = Array.Exists(args, a => a.Equals("--quick", StringComparison.OrdinalIgnoreCase));
-                    using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(inArg)}"))
+                    using (var cts = new System.Threading.CancellationTokenSource())
                     {
-                        var sw = System.Diagnostics.Stopwatch.StartNew();
-                        bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
-                                         : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
-                        sw.Stop();
-                        double secs = Math.Max(0.001, sw.Elapsed.TotalSeconds);
-                        long totalBytes = 0; foreach (var e in r.Index) totalBytes += e.CompressedLength;
-                        var avg = ConsoleProgressScope.FormatBytes((long)(totalBytes / secs));
-                        p.Complete();
-                        Console.WriteLine(ok ? $"Verify: OK. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg}/s" : $"Verify: FAILED. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg}/s");
-                        return ok ? 0 : 4;
+                        Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                        using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(inArg)}"))
+                        {
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
+                                             : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
+                            sw.Stop();
+                            double secs = Math.Max(0.001, sw.Elapsed.TotalSeconds);
+                            long totalBytes = 0; foreach (var e in r.Index) totalBytes += e.CompressedLength;
+                            var avg = ConsoleProgressScope.FormatBytes((long)(totalBytes / secs));
+                            p.Complete();
+                            
+                            // Check if verification was canceled
+                            bool wasCanceled = cts.IsCancellationRequested;
+                            
+                            if (wasCanceled)
+                            {
+                                Console.WriteLine($"Verify: CANCELED. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg}/s");
+                                // Do NOT create acknowledgment files for canceled verifications
+                                return 130; // Standard exit code for Ctrl+C
+                            }
+                            else
+                            {
+                                Console.WriteLine(ok ? $"Verify: OK. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg}/s" : $"Verify: FAILED. Elapsed: {ConsoleProgressScope.FormatTime(sw.Elapsed)}  Avg: {avg}/s");
+                                
+                                // Create acknowledgment files only for completed verifications (success or failure)
+                                CreateVerificationAcknowledgment(inArg, ok, quick);
+                                
+                                return ok ? 0 : 4;
+                            }
+                        }
                     }
                     
                 }
@@ -456,76 +477,97 @@ namespace ImagingUtility
                         Console.Error.WriteLine($"Manifest not found: {manifestPath}");
                         return 2;
                     }
-                    var manifest = BackupSetIO.Load(manifestPath);
-                    bool allOk = true;
-                    // Verify partition table dump hash if available
-                    if (!string.IsNullOrEmpty(manifest.PartitionTableDump) && !string.IsNullOrEmpty(manifest.PartitionTableDumpSha256))
+                    
+                    using (var cts = new System.Threading.CancellationTokenSource())
                     {
-                        var ptPath = Path.Combine(setDir, manifest.PartitionTableDump);
-                        if (File.Exists(ptPath))
+                        Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                        var manifest = BackupSetIO.Load(manifestPath);
+                        bool allOk = true;
+                        // Verify partition table dump hash if available
+                        if (!string.IsNullOrEmpty(manifest.PartitionTableDump) && !string.IsNullOrEmpty(manifest.PartitionTableDumpSha256))
                         {
-                            var actual = ComputeFileSha256Safe(ptPath);
-                            if (!string.IsNullOrEmpty(actual) && !actual.Equals(manifest.PartitionTableDumpSha256, StringComparison.OrdinalIgnoreCase))
+                            var ptPath = Path.Combine(setDir, manifest.PartitionTableDump);
+                            if (File.Exists(ptPath))
                             {
-                                Console.Error.WriteLine($"Partition table dump hash mismatch: {Path.GetFileName(ptPath)}");
-                                allOk = false;
-                            }
-                        }
-                        else
-                        {
-                            Console.Error.WriteLine($"Partition table dump missing: {Path.GetFileName(ptPath)}");
-                            allOk = false;
-                        }
-                    }
-                    // Verify each partition artifact
-                    foreach (var part in manifest.Partitions)
-                    {
-                        if (!string.IsNullOrEmpty(part.ImageFile))
-                        {
-                            var imgPath = Path.Combine(setDir, part.ImageFile);
-                            if (!File.Exists(imgPath)) { Console.Error.WriteLine($"Missing image: {part.ImageFile}"); allOk = false; continue; }
-                            // Optional pre-check: ImageSha256 if recorded (single-file hash can be large; skip if not present)
-                            if (!string.IsNullOrEmpty(part.ImageSha256))
-                            {
-                                var imgHash = ComputeFileSha256Safe(imgPath);
-                                if (!string.IsNullOrEmpty(imgHash) && !imgHash.Equals(part.ImageSha256, StringComparison.OrdinalIgnoreCase))
-                                { Console.Error.WriteLine($"Hash mismatch: {part.ImageFile}"); allOk = false; }
-                            }
-                            using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(imgPath)}"))
-                            {
-                                var r = new ImageReader(imgPath);
-                                bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
-                                                : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
-                                if (!ok) allOk = false;
-                                p.Complete();
-                                Console.WriteLine(ok ? $"Verify OK: {Path.GetFileName(imgPath)}" : $"Verify FAILED: {Path.GetFileName(imgPath)}");
-                            }
-                        }
-                        else if (!string.IsNullOrEmpty(part.RawDump))
-                        {
-                            var dumpPath = Path.Combine(setDir, part.RawDump);
-                            if (!File.Exists(dumpPath)) { Console.Error.WriteLine($"Missing raw dump: {part.RawDump}"); allOk = false; continue; }
-                            if (!string.IsNullOrEmpty(part.RawDumpSha256))
-                            {
-                                var actual = ComputeFileSha256Safe(dumpPath);
-                                if (!string.IsNullOrEmpty(actual) && !actual.Equals(part.RawDumpSha256, StringComparison.OrdinalIgnoreCase))
+                                var actual = ComputeFileSha256Safe(ptPath);
+                                if (!string.IsNullOrEmpty(actual) && !actual.Equals(manifest.PartitionTableDumpSha256, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    Console.Error.WriteLine($"Hash mismatch: {part.RawDump}");
+                                    Console.Error.WriteLine($"Partition table dump hash mismatch: {Path.GetFileName(ptPath)}");
                                     allOk = false;
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"Raw dump OK: {Path.GetFileName(dumpPath)}");
                                 }
                             }
                             else
                             {
-                                Console.WriteLine($"Raw dump present (no hash recorded): {Path.GetFileName(dumpPath)}");
+                                Console.Error.WriteLine($"Partition table dump missing: {Path.GetFileName(ptPath)}");
+                                allOk = false;
                             }
                         }
+                        // Verify each partition artifact
+                        foreach (var part in manifest.Partitions)
+                        {
+                            if (!string.IsNullOrEmpty(part.ImageFile))
+                            {
+                                var imgPath = Path.Combine(setDir, part.ImageFile);
+                                if (!File.Exists(imgPath)) { Console.Error.WriteLine($"Missing image: {part.ImageFile}"); allOk = false; continue; }
+                                // Optional pre-check: ImageSha256 if recorded (single-file hash can be large; skip if not present)
+                                if (!string.IsNullOrEmpty(part.ImageSha256))
+                                {
+                                    var imgHash = ComputeFileSha256Safe(imgPath);
+                                    if (!string.IsNullOrEmpty(imgHash) && !imgHash.Equals(part.ImageSha256, StringComparison.OrdinalIgnoreCase))
+                                    { Console.Error.WriteLine($"Hash mismatch: {part.ImageFile}"); allOk = false; }
+                                }
+                                using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(imgPath)}"))
+                                {
+                                    var r = new ImageReader(imgPath);
+                                    bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
+                                                    : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
+                                    if (!ok) allOk = false;
+                                    p.Complete();
+                                    Console.WriteLine(ok ? $"Verify OK: {Path.GetFileName(imgPath)}" : $"Verify FAILED: {Path.GetFileName(imgPath)}");
+                                }
+                            }
+                            else if (!string.IsNullOrEmpty(part.RawDump))
+                            {
+                                var dumpPath = Path.Combine(setDir, part.RawDump);
+                                if (!File.Exists(dumpPath)) { Console.Error.WriteLine($"Missing raw dump: {part.RawDump}"); allOk = false; continue; }
+                                if (!string.IsNullOrEmpty(part.RawDumpSha256))
+                                {
+                                    var actual = ComputeFileSha256Safe(dumpPath);
+                                    if (!string.IsNullOrEmpty(actual) && !actual.Equals(part.RawDumpSha256, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        Console.Error.WriteLine($"Hash mismatch: {part.RawDump}");
+                                        allOk = false;
+                                    }
+                                    else
+                                    {
+                                        Console.WriteLine($"Raw dump OK: {Path.GetFileName(dumpPath)}");
+                                    }
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Raw dump present (no hash recorded): {Path.GetFileName(dumpPath)}");
+                                }
+                            }
+                        }
+                        Console.WriteLine(allOk ? "Backup set verification: OK" : "Backup set verification: FAILED");
+                        
+                        // Check if verification was canceled
+                        bool wasCanceled = cts.IsCancellationRequested;
+                        
+                        if (wasCanceled)
+                        {
+                            Console.WriteLine("Backup set verification: CANCELED");
+                            // Do NOT create acknowledgment files for canceled verifications
+                            return 130; // Standard exit code for Ctrl+C
+                        }
+                        else
+                        {
+                            // Create acknowledgment files only for completed verifications (success or failure)
+                            CreateBackupSetVerificationAcknowledgment(setDir, allOk, quick);
+                            
+                            return allOk ? 0 : 4;
+                        }
                     }
-                    Console.WriteLine(allOk ? "Backup set verification: OK" : "Backup set verification: FAILED");
-                    return allOk ? 0 : 4;
                 }
                 else if (cmd == "ntfs-serve")
                 {
@@ -892,6 +934,68 @@ namespace ImagingUtility
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
 #pragma warning restore CA1416
+        }
+
+        private static void CreateVerificationAcknowledgment(string imagePath, bool verificationPassed, bool wasQuick)
+        {
+            try
+            {
+                string basePath = Path.GetDirectoryName(imagePath) ?? "";
+                string fileName = Path.GetFileNameWithoutExtension(imagePath);
+                
+                if (verificationPassed)
+                {
+                    // Create success acknowledgment file
+                    string ackFileName = wasQuick ? $"{fileName}.VerifiedQuick" : $"{fileName}.VerifiedFull";
+                    string ackPath = Path.Combine(basePath, ackFileName);
+                    File.WriteAllText(ackPath, ""); // Create empty file
+                }
+                else
+                {
+                    // Create failure acknowledgment file
+                    string ackFileName = $"{fileName}.BadImage";
+                    string ackPath = Path.Combine(basePath, ackFileName);
+                    File.WriteAllText(ackPath, ""); // Create empty file
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Could not create verification acknowledgment file: {ex.Message}");
+            }
+        }
+
+        private static void CreateBackupSetVerificationAcknowledgment(string setDir, bool verificationPassed, bool wasQuick)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(setDir, "backup.manifest.json");
+                if (File.Exists(manifestPath))
+                {
+                    // For backup sets, create acknowledgment based on the set directory name
+                    string setName = Path.GetFileName(setDir);
+                    if (string.IsNullOrEmpty(setName))
+                        setName = "BackupSet";
+                    
+                    if (verificationPassed)
+                    {
+                        // Create success acknowledgment file
+                        string ackFileName = wasQuick ? $"{setName}.VerifiedQuick" : $"{setName}.VerifiedFull";
+                        string ackPath = Path.Combine(setDir, ackFileName);
+                        File.WriteAllText(ackPath, ""); // Create empty file
+                    }
+                    else
+                    {
+                        // Create failure acknowledgment file
+                        string ackFileName = $"{setName}.BadImage";
+                        string ackPath = Path.Combine(setDir, ackFileName);
+                        File.WriteAllText(ackPath, ""); // Create empty file
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Warning: Could not create backup set verification acknowledgment file: {ex.Message}");
+            }
         }
 
         private static string ComputeFileSha256Safe(string path)
