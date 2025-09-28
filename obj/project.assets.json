@@ -48,12 +48,6 @@
           }
         }
       },
-      "Microsoft.NET.ILLink.Tasks/8.0.14": {
-        "type": "package",
-        "build": {
-          "build/Microsoft.NET.ILLink.Tasks.props": {}
-        }
-      },
       "Microsoft.NETCore.Platforms/5.0.0": {
         "type": "package",
         "compile": {
@@ -159,143 +153,6 @@
           "lib/net8.0/ZstdSharp.dll": {}
         }
       }
-    },
-    "net8.0/win-arm64": {
-      "DiscUtils.Core/0.16.13": {
-        "type": "package",
-        "dependencies": {
-          "DiscUtils.Streams": "0.16.13",
-          "System.Security.AccessControl": "5.0.0"
-        },
-        "compile": {
-          "lib/net5.0/DiscUtils.Core.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net5.0/DiscUtils.Core.dll": {
-            "related": ".xml"
-          }
-        }
-      },
-      "DiscUtils.Ntfs/0.16.13": {
-        "type": "package",
-        "dependencies": {
-          "DiscUtils.Core": "0.16.13"
-        },
-        "compile": {
-          "lib/net5.0/DiscUtils.Ntfs.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net5.0/DiscUtils.Ntfs.dll": {
-            "related": ".xml"
-          }
-        }
-      },
-      "DiscUtils.Streams/0.16.13": {
-        "type": "package",
-        "compile": {
-          "lib/net5.0/DiscUtils.Streams.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net5.0/DiscUtils.Streams.dll": {
-            "related": ".xml"
-          }
-        }
-      },
-      "Microsoft.NET.ILLink.Tasks/8.0.14": {
-        "type": "package",
-        "build": {
-          "build/Microsoft.NET.ILLink.Tasks.props": {}
-        }
-      },
-      "Microsoft.NETCore.Platforms/5.0.0": {
-        "type": "package",
-        "compile": {
-          "lib/netstandard1.0/_._": {}
-        },
-        "runtime": {
-          "lib/netstandard1.0/_._": {}
-        }
-      },
-      "System.CodeDom/7.0.0": {
-        "type": "package",
-        "compile": {
-          "lib/net7.0/System.CodeDom.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "lib/net7.0/System.CodeDom.dll": {
-            "related": ".xml"
-          }
-        },
-        "build": {
-          "buildTransitive/net6.0/_._": {}
-        }
-      },
-      "System.Management/7.0.0": {
-        "type": "package",
-        "dependencies": {
-          "System.CodeDom": "7.0.0"
-        },
-        "compile": {
-          "lib/net7.0/System.Management.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "runtimes/win/lib/net7.0/System.Management.dll": {
-            "related": ".xml"
-          }
-        },
-        "build": {
-          "buildTransitive/net6.0/_._": {}
-        }
-      },
-      "System.Security.AccessControl/5.0.0": {
-        "type": "package",
-        "dependencies": {
-          "Microsoft.NETCore.Platforms": "5.0.0",
-          "System.Security.Principal.Windows": "5.0.0"
-        },
-        "compile": {
-          "ref/netstandard2.0/System.Security.AccessControl.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "runtimes/win/lib/netcoreapp2.0/System.Security.AccessControl.dll": {
-            "related": ".xml"
-          }
-        }
-      },
-      "System.Security.Principal.Windows/5.0.0": {
-        "type": "package",
-        "compile": {
-          "ref/netcoreapp3.0/System.Security.Principal.Windows.dll": {
-            "related": ".xml"
-          }
-        },
-        "runtime": {
-          "runtimes/win/lib/netcoreapp2.1/System.Security.Principal.Windows.dll": {
-            "related": ".xml"
-          }
-        }
-      },
-      "ZstdSharp.Port/0.8.6": {
-        "type": "package",
-        "compile": {
-          "lib/net8.0/ZstdSharp.dll": {}
-        },
-        "runtime": {
-          "lib/net8.0/ZstdSharp.dll": {}
-        }
-      }
     }
   },
   "libraries": {
@@ -354,57 +211,6 @@
         "lib/net5.0/DiscUtils.Streams.xml",
         "lib/netstandard2.0/DiscUtils.Streams.dll",
         "lib/netstandard2.0/DiscUtils.Streams.xml"
-      ]
-    },
-    "Microsoft.NET.ILLink.Tasks/8.0.14": {
-      "sha512": "4U2fd7PexNKrK5ZqfqIcXZj9/lRRjFsLgA/pxuFQTuGQuLYP/+7yACz/j7EmWbEj/fspOf4mafi/vHIy/rKDzQ==",
-      "type": "package",
-      "path": "microsoft.net.illink.tasks/8.0.14",
-      "hasTools": true,
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "Icon.png",
-        "LICENSE.TXT",
-        "Sdk/Sdk.props",
-        "THIRD-PARTY-NOTICES.TXT",
-        "analyzers/dotnet/cs/ILLink.CodeFixProvider.dll",
-        "analyzers/dotnet/cs/ILLink.RoslynAnalyzer.dll",
-        "build/Microsoft.NET.ILLink.Analyzers.props",
-        "build/Microsoft.NET.ILLink.Tasks.props",
-        "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.8.0.14.nupkg.sha512",
-        "microsoft.net.illink.tasks.nuspec",
-        "tools/net472/ILLink.Tasks.dll",
-        "tools/net472/ILLink.Tasks.dll.config",
-        "tools/net472/Mono.Cecil.Mdb.dll",
-        "tools/net472/Mono.Cecil.Pdb.dll",
-        "tools/net472/Mono.Cecil.Rocks.dll",
-        "tools/net472/Mono.Cecil.dll",
-        "tools/net472/Sdk/Sdk.props",
-        "tools/net472/System.Buffers.dll",
-        "tools/net472/System.Collections.Immutable.dll",
-        "tools/net472/System.Memory.dll",
-        "tools/net472/System.Numerics.Vectors.dll",
-        "tools/net472/System.Reflection.Metadata.dll",
-        "tools/net472/System.Runtime.CompilerServices.Unsafe.dll",
-        "tools/net472/build/Microsoft.NET.ILLink.Analyzers.props",
-        "tools/net472/build/Microsoft.NET.ILLink.Tasks.props",
-        "tools/net472/build/Microsoft.NET.ILLink.targets",
-        "tools/net8.0/ILLink.Tasks.deps.json",
-        "tools/net8.0/ILLink.Tasks.dll",
-        "tools/net8.0/Mono.Cecil.Mdb.dll",
-        "tools/net8.0/Mono.Cecil.Pdb.dll",
-        "tools/net8.0/Mono.Cecil.Rocks.dll",
-        "tools/net8.0/Mono.Cecil.dll",
-        "tools/net8.0/Sdk/Sdk.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.Analyzers.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.Tasks.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.targets",
-        "tools/net8.0/illink.deps.json",
-        "tools/net8.0/illink.dll",
-        "tools/net8.0/illink.runtimeconfig.json",
-        "useSharedDesignerContext.txt"
       ]
     },
     "Microsoft.NETCore.Platforms/5.0.0": {
@@ -607,7 +413,6 @@
     "net8.0": [
       "DiscUtils.Core >= 0.16.13",
       "DiscUtils.Ntfs >= 0.16.13",
-      "Microsoft.NET.ILLink.Tasks >= 8.0.14",
       "System.Management >= 7.0.0",
       "ZstdSharp.Port >= 0.8.6"
     ]
@@ -619,11 +424,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
+      "projectUniqueName": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
       "projectName": "ImagingUtility",
-      "projectPath": "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
+      "projectPath": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
       "packagesPath": "C:\\Users\\steeb\\.nuget\\packages\\",
-      "outputPath": "c:\\Users\\steeb\\imaging-utility\\obj\\",
+      "outputPath": "C:\\Users\\steeb\\imaging-utility\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -671,12 +476,6 @@
             "target": "Package",
             "version": "[0.16.13, )"
           },
-          "Microsoft.NET.ILLink.Tasks": {
-            "suppressParent": "All",
-            "target": "Package",
-            "version": "[8.0.14, )",
-            "autoReferenced": true
-          },
           "System.Management": {
             "target": "Package",
             "version": "[7.0.0, )"
@@ -697,31 +496,12 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
-        "downloadDependencies": [
-          {
-            "name": "Microsoft.AspNetCore.App.Runtime.win-arm64",
-            "version": "[8.0.14, 8.0.14]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Runtime.win-arm64",
-            "version": "[8.0.14, 8.0.14]"
-          },
-          {
-            "name": "Microsoft.WindowsDesktop.App.Runtime.win-arm64",
-            "version": "[8.0.14, 8.0.14]"
-          }
-        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
           }
         },
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.201/PortableRuntimeIdentifierGraph.json"
-      }
-    },
-    "runtimes": {
-      "win-arm64": {
-        "#import": []
       }
     }
   }

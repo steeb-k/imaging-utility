@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj": {}
+    "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj": {}
   },
   "projects": {
-    "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj": {
+    "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
+        "projectUniqueName": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
         "projectName": "ImagingUtility",
-        "projectPath": "c:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
+        "projectPath": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
         "packagesPath": "C:\\Users\\steeb\\.nuget\\packages\\",
-        "outputPath": "c:\\Users\\steeb\\imaging-utility\\obj\\",
+        "outputPath": "C:\\Users\\steeb\\imaging-utility\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -59,12 +59,6 @@
               "target": "Package",
               "version": "[0.16.13, )"
             },
-            "Microsoft.NET.ILLink.Tasks": {
-              "suppressParent": "All",
-              "target": "Package",
-              "version": "[8.0.14, )",
-              "autoReferenced": true
-            },
             "System.Management": {
               "target": "Package",
               "version": "[7.0.0, )"
@@ -85,31 +79,12 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Runtime.win-arm64",
-              "version": "[8.0.14, 8.0.14]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Runtime.win-arm64",
-              "version": "[8.0.14, 8.0.14]"
-            },
-            {
-              "name": "Microsoft.WindowsDesktop.App.Runtime.win-arm64",
-              "version": "[8.0.14, 8.0.14]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.NETCore.App": {
               "privateAssets": "all"
             }
           },
           "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.201/PortableRuntimeIdentifierGraph.json"
-        }
-      },
-      "runtimes": {
-        "win-arm64": {
-          "#import": []
         }
       }
     }
