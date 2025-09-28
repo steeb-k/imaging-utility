@@ -58,8 +58,17 @@ CLI commands
 - dump-pt – dump first N bytes (MBR/GPT region)
 
 Device path guidance
+  - \\?\\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\\
+  Pass this to `--device`. Discover GUIDs with `mountvol` or PowerShell `Get-Volume`.
+Device path guidance
 - For raw device access: use \\.-prefixed paths, e.g., \\.\PhysicalDrive1 or \\.\C:
-- For a drive letter without VSS, \\.\D: is required. With VSS, you can pass D: (or D:\) and let the tool snapshot and redirect.
+- Drive letters:
+  - Non-VSS (raw): use \\.\D:
+  - With VSS: you can pass D: or D:\\ and add `--use-vss` (the tool will snapshot and redirect).
+- Volumes without drive letters (Volume GUID paths):
+  - Non-VSS (raw): use the GUID path without a trailing backslash, e.g., \\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}
+  - With VSS: use the GUID path with a trailing backslash and add `--use-vss`, e.g., \\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\\
+  Discover GUIDs with `mountvol` or PowerShell `Get-Volume`.
 
 Examples
 ```powershell
@@ -77,11 +86,28 @@ Examples
 # Opt in to write-through (reduces OS cache burstiness; may reduce peaks)
 .\bin\Release\net8.0\ImagingUtility.exe image --device D: --out 'F:\Backups\D.skzimg' --write-through
 
+# Image a volume that has no drive letter (use the Volume GUID path)
+# Discover the GUID via `mountvol` or PowerShell, e.g.:
+#   (Get-Volume | Where-Object DriveLetter -eq $null).UniqueId
+# Image a volume that has no drive letter (Volume GUID path)
+# Discover the GUID via `mountvol` or PowerShell, e.g.:
+#   (Get-Volume | Where-Object DriveLetter -eq $null).UniqueId
+
+# Non-VSS (raw): note NO trailing backslash
+.\bin\Release\net8.0\ImagingUtility.exe image --device "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}" --out 'F:\Backups\NoLetterVol.skzimg'
+
+# With VSS (recommended for NTFS): trailing backslash + --use-vss
+.\bin\Release\net8.0\ImagingUtility.exe image --device "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\\" --use-vss --out 'F:\Backups\NoLetterVol.skzimg'
+
 # Multi-volume snapshot set
 .\bin\Release\net8.0\ImagingUtility.exe image --volumes C:,D: --out-dir 'F:\Backups' --use-vss
 
 # Full-disk backup set (manifest + images + raw dumps)
 .\bin\Release\net8.0\ImagingUtility.exe backup-disk --disk 0 --out-dir 'F:\Backups\Disk0-Set'
+
+# Note: backup-disk will image NTFS volumes (with VSS if enabled) and raw-dump partitions
+# without letters or with non-VSS filesystems (e.g., EFI, MSR, Recovery). The manifest records
+# starting offsets and sizes for each partition.
 
 # Verify (full)
 .\bin\Release\net8.0\ImagingUtility.exe verify --in 'F:\Backups\D.skzimg'
