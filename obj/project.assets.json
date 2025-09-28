@@ -160,7 +160,7 @@
         }
       }
     },
-    "net8.0/win-x64": {
+    "net8.0/win-arm64": {
       "DiscUtils.Core/0.16.13": {
         "type": "package",
         "dependencies": {
@@ -699,15 +699,15 @@
         "warn": true,
         "downloadDependencies": [
           {
-            "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+            "name": "Microsoft.AspNetCore.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           },
           {
-            "name": "Microsoft.NETCore.App.Runtime.win-x64",
+            "name": "Microsoft.NETCore.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           },
           {
-            "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+            "name": "Microsoft.WindowsDesktop.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           }
         ],
@@ -720,7 +720,7 @@
       }
     },
     "runtimes": {
-      "win-x64": {
+      "win-arm64": {
         "#import": []
       }
     }

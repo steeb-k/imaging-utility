@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Security.Cryptography;
 
 namespace ImagingUtility
 {
@@ -24,6 +25,7 @@ namespace ImagingUtility
             string ptDump = Path.Combine(outDir, $"disk{diskNumber}-pt.bin");
             await DumpFirstBytesAsync($"\\\\.\\PhysicalDrive{diskNumber}", ptDump, 1048576);
             manifest.PartitionTableDump = Path.GetFileName(ptDump);
+            try { manifest.PartitionTableDumpSha256 = ComputeFileSha256(ptDump); } catch { }
 
             // 2) Separate partitions into VSS-capable and raw-needed
             var vssVolumes = layout.Partitions
@@ -84,6 +86,7 @@ namespace ImagingUtility
                             await writer.WriteFromAsync(reader, 0, p.Size, (done, total) => prog.Report(done, total), parallel, getDesired, pipelineDepth); // cap to partition size
                     }
 
+                    string? imgSha = null; try { imgSha = ComputeFileSha256(outPath); } catch { }
                     manifest.Partitions.Add(new PartitionEntry
                     {
                         Index = p.Index,
@@ -93,7 +96,8 @@ namespace ImagingUtility
                         DriveLetter = p.DriveLetter,
                         VolumeLabel = p.VolumeLabel,
                         FileSystem = p.FileSystem,
-                        ImageFile = Path.GetFileName(outPath)
+                        ImageFile = Path.GetFileName(outPath),
+                        ImageSha256 = imgSha
                     });
                 }
 
@@ -107,6 +111,7 @@ namespace ImagingUtility
                         await DumpPartitionRawAsync(diskNumber, p.StartingOffset, p.Size, outPath, (done, total) => prog.Report(done, total));
                     }
 
+                    string? rawSha = null; try { rawSha = ComputeFileSha256(outPath); } catch { }
                     manifest.Partitions.Add(new PartitionEntry
                     {
                         Index = p.Index,
@@ -116,7 +121,8 @@ namespace ImagingUtility
                         DriveLetter = p.DriveLetter,
                         VolumeLabel = p.VolumeLabel,
                         FileSystem = p.FileSystem,
-                        RawDump = Path.GetFileName(outPath)
+                        RawDump = Path.GetFileName(outPath),
+                        RawDumpSha256 = rawSha
                     });
                 }
             }
@@ -332,6 +338,14 @@ namespace ImagingUtility
             foreach (var ch in s)
                 if (char.IsLetterOrDigit(ch)) allowed.Add(ch);
             return new string(allowed.ToArray());
+        }
+
+        private static string ComputeFileSha256(string path)
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var sha = SHA256.Create();
+            var hash = sha.ComputeHash(fs);
+            return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
         // Local copy of default chunk heuristic (prefer 512MiB, fallback to 64MiB if available memory is low)

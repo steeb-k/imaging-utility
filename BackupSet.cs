@@ -13,6 +13,7 @@ namespace ImagingUtility
         public string CreatedUtc { get; set; } = DateTime.UtcNow.ToString("o");
         public List<PartitionEntry> Partitions { get; set; } = new();
         public string? PartitionTableDump { get; set; } // relative path to pt dump file, if present
+        public string? PartitionTableDumpSha256 { get; set; }
         public string? Notes { get; set; }
     }
 
@@ -27,6 +28,8 @@ namespace ImagingUtility
         public string? FileSystem { get; set; }
     public string? ImageFile { get; set; } // relative path to .skzimg for this partition (if NTFS/FAT/exFAT imaged via VSS)
         public string? RawDump { get; set; } // relative path to raw dump file for non-VSS partitions (EFI/MSR/Recovery or unknown FS)
+        public string? RawDumpSha256 { get; set; }
+        public string? ImageSha256 { get; set; }
     }
 
     internal static class BackupSetIO

@@ -21,3 +21,4 @@ C:\Users\steeb\imaging-utility\obj\Release\net8.0\ref\ImagingUtility.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\DiscUtils.Core.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\DiscUtils.Ntfs.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\DiscUtils.Streams.dll
+c:\Users\steeb\imaging-utility\obj\Release\net8.0\ImagingUtility.sourcelink.json

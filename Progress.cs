@@ -5,6 +5,7 @@ namespace ImagingUtility
 {
     internal sealed class ConsoleProgressScope : IDisposable
     {
+        public static bool ForcePlain { get; set; } = false;
         private readonly string _label;
         private readonly Stopwatch _sw = Stopwatch.StartNew();
         private long _lastTicks;
@@ -12,11 +13,22 @@ namespace ImagingUtility
         private readonly int _updateMs;
         private bool _completed;
         private bool _printedAny;
+        private readonly bool _plain;
 
         public ConsoleProgressScope(string label, int updateMs = 250)
         {
             _label = label;
             _updateMs = updateMs;
+            // Plain mode when output is redirected or explicitly requested via env var or flag
+            try
+            {
+                var envPlain = Environment.GetEnvironmentVariable("IMAGINGUTILITY_PLAIN");
+                _plain = ForcePlain || Console.IsOutputRedirected || string.Equals(envPlain, "1", StringComparison.OrdinalIgnoreCase) || string.Equals(envPlain, "true", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                _plain = true; // be safe
+            }
         }
 
         public void Report(long done, long total)
@@ -33,7 +45,14 @@ namespace ImagingUtility
             double rate = done / sec; // bytes per second
             var eta = rate > 0 ? TimeSpan.FromSeconds((total - done) / rate) : TimeSpan.Zero;
             string line = $"{_label}: {pct,6:0.0}%  {FormatBytes(done)} / {FormatBytes(total)}  {FormatBytes((long)rate)}/s  ETA {FormatTime(eta)}";
-            WriteUpdatingLine(line);
+            if (_plain)
+            {
+                Console.WriteLine(line);
+            }
+            else
+            {
+                WriteUpdatingLine(line);
+            }
             _printedAny = true;
         }
 
@@ -47,7 +66,9 @@ namespace ImagingUtility
         private static void WriteUpdatingLine(string text)
         {
             // Overwrite the current console line
-            int width = Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 120;
+            int width;
+            try { width = Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 120; }
+            catch { width = 120; }
             if (text.Length > width) text = text.Substring(0, width);
             Console.Write("\r" + text.PadRight(width));
         }

@@ -202,3 +202,4 @@ c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\msquic.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Core.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Ntfs.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Streams.dll
+c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.sourcelink.json

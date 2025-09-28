@@ -46,6 +46,7 @@ CLI commands
 - list – list physical drives
 - image – image a device or volumes
 - verify – verify chunk integrity (full or quick)
+- verify-set – verify a full backup set (manifest + per-partition artifacts)
 - export-raw / export-vhd – export to raw or fixed VHD
 - export-range – read an arbitrary byte range directly from a compressed image
 - serve-proxy – serve a read-only block device over TCP or a named pipe for mounting via DevIo/Proxy-compatible clients
@@ -86,6 +87,11 @@ Examples
 .\bin\Release\net8.0\ImagingUtility.exe verify --in 'F:\Backups\D.skzimg'
 # Quick verify (sampling)
 .\bin\Release\net8.0\ImagingUtility.exe verify --in 'F:\Backups\D.skzimg' --quick
+
+# Verify an entire backup set
+.\bin\Release\net8.0\ImagingUtility.exe verify-set --set-dir 'F:\Backups\Disk0-Set'
+# Or quick mode (sampling for images)
+.\bin\Release\net8.0\ImagingUtility.exe verify-set --set-dir 'F:\Backups\Disk0-Set' --quick
 
 # Export an arbitrary range without full extraction
 .\bin\Release\net8.0\ImagingUtility.exe export-range --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --length 4096 --out '.\sector-2048.bin'
@@ -130,6 +136,11 @@ Notes
   - Use the userspace tools here (ntfs-extract / ntfs-serve) which bypass ACLs by reading the filesystem structures directly, or
   - Use tools that leverage SeBackupPrivilege (e.g., robocopy /B) on the mounted volume.
 - WebDAV mapping (ntfs-webdav) provides an Explorer-friendly, read-only view that bypasses ACLs. Requires the WebClient service. For large bulk copies, direct extraction may be faster.
+
+Plain progress mode
+- When standard output is redirected or the environment variable IMAGINGUTILITY_PLAIN=1 is set, progress is printed as parse-friendly lines:
+  - "Imaging C::  27.9%  12.3 GiB / 44.5 GiB  420.5 MiB/s  ETA 03:12"
+- You can also force it with the flag `--plain`.
 
 Future prospects
 - Optional: IMDPROXY compatibility for DevIo/Proxy clients if ever needed (de-prioritized since WebDAV meets current needs).

@@ -15,6 +15,11 @@ namespace ImagingUtility
     {
         static async Task<int> Main(string[] args)
         {
+            // Enable plain progress output if requested via flag (in addition to env var or redirected output)
+            if (args.Any(a => a.Equals("--plain", StringComparison.OrdinalIgnoreCase)))
+            {
+                ConsoleProgressScope.ForcePlain = true;
+            }
             if (!IsElevated())
             {
                 Console.Error.WriteLine("This tool must be run as Administrator.");
@@ -433,6 +438,95 @@ namespace ImagingUtility
                     Console.WriteLine($"Backup set complete. Elapsed: {ConsoleProgressScope.FormatTime(swBackup.Elapsed)}");
                     return 0;
                 }
+                else if (cmd == "verify-set")
+                {
+                    // verify-set --set-dir <dir> [--quick] [--parallel N]
+                    var setDir = GetArgValue(args, "--set-dir");
+                    if (string.IsNullOrEmpty(setDir) || !Directory.Exists(setDir))
+                    {
+                        Console.Error.WriteLine("Usage: verify-set --set-dir <dir> [--quick] [--parallel N] [--plain]");
+                        return 1;
+                    }
+                    bool quick = Array.Exists(args, a => a.Equals("--quick", StringComparison.OrdinalIgnoreCase));
+                    int? parallel = null; var parArg = GetArgValue(args, "--parallel");
+                    if (!string.IsNullOrEmpty(parArg) && int.TryParse(parArg, out var pval) && pval > 0) parallel = pval;
+                    string manifestPath = Path.Combine(setDir, "backup.manifest.json");
+                    if (!File.Exists(manifestPath))
+                    {
+                        Console.Error.WriteLine($"Manifest not found: {manifestPath}");
+                        return 2;
+                    }
+                    var manifest = BackupSetIO.Load(manifestPath);
+                    bool allOk = true;
+                    // Verify partition table dump hash if available
+                    if (!string.IsNullOrEmpty(manifest.PartitionTableDump) && !string.IsNullOrEmpty(manifest.PartitionTableDumpSha256))
+                    {
+                        var ptPath = Path.Combine(setDir, manifest.PartitionTableDump);
+                        if (File.Exists(ptPath))
+                        {
+                            var actual = ComputeFileSha256Safe(ptPath);
+                            if (!string.IsNullOrEmpty(actual) && !actual.Equals(manifest.PartitionTableDumpSha256, StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.Error.WriteLine($"Partition table dump hash mismatch: {Path.GetFileName(ptPath)}");
+                                allOk = false;
+                            }
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine($"Partition table dump missing: {Path.GetFileName(ptPath)}");
+                            allOk = false;
+                        }
+                    }
+                    // Verify each partition artifact
+                    foreach (var part in manifest.Partitions)
+                    {
+                        if (!string.IsNullOrEmpty(part.ImageFile))
+                        {
+                            var imgPath = Path.Combine(setDir, part.ImageFile);
+                            if (!File.Exists(imgPath)) { Console.Error.WriteLine($"Missing image: {part.ImageFile}"); allOk = false; continue; }
+                            // Optional pre-check: ImageSha256 if recorded (single-file hash can be large; skip if not present)
+                            if (!string.IsNullOrEmpty(part.ImageSha256))
+                            {
+                                var imgHash = ComputeFileSha256Safe(imgPath);
+                                if (!string.IsNullOrEmpty(imgHash) && !imgHash.Equals(part.ImageSha256, StringComparison.OrdinalIgnoreCase))
+                                { Console.Error.WriteLine($"Hash mismatch: {part.ImageFile}"); allOk = false; }
+                            }
+                            using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(imgPath)}"))
+                            {
+                                var r = new ImageReader(imgPath);
+                                bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
+                                                : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
+                                if (!ok) allOk = false;
+                                p.Complete();
+                                Console.WriteLine(ok ? $"Verify OK: {Path.GetFileName(imgPath)}" : $"Verify FAILED: {Path.GetFileName(imgPath)}");
+                            }
+                        }
+                        else if (!string.IsNullOrEmpty(part.RawDump))
+                        {
+                            var dumpPath = Path.Combine(setDir, part.RawDump);
+                            if (!File.Exists(dumpPath)) { Console.Error.WriteLine($"Missing raw dump: {part.RawDump}"); allOk = false; continue; }
+                            if (!string.IsNullOrEmpty(part.RawDumpSha256))
+                            {
+                                var actual = ComputeFileSha256Safe(dumpPath);
+                                if (!string.IsNullOrEmpty(actual) && !actual.Equals(part.RawDumpSha256, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    Console.Error.WriteLine($"Hash mismatch: {part.RawDump}");
+                                    allOk = false;
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Raw dump OK: {Path.GetFileName(dumpPath)}");
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Raw dump present (no hash recorded): {Path.GetFileName(dumpPath)}");
+                            }
+                        }
+                    }
+                    Console.WriteLine(allOk ? "Backup set verification: OK" : "Backup set verification: FAILED");
+                    return allOk ? 0 : 4;
+                }
                 else if (cmd == "ntfs-serve")
                 {
                     // ntfs-serve --in <image-file> --offset <bytes> [--host 127.0.0.1] [--port 18080]
@@ -751,12 +845,13 @@ namespace ImagingUtility
             Console.WriteLine("ImagingUtility - simple prototype\n");
             Console.WriteLine("Commands:");
             Console.WriteLine("  list\t\tList physical drives");
-            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, dynamic parallel/pipeline targeting ~4 total)".Replace(" ", string.Empty));
-            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
-            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
+            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, dynamic parallel/pipeline targeting ~4 total)".Replace(" ", string.Empty));
+            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
+            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
+            Console.WriteLine("  verify-set --set-dir <dir> [--quick] [--parallel N] [--plain]\tVerify a full backup set: manifest, raw-dump hashes, and per-image verification");
             Console.WriteLine("  restore-set --set-dir <dir> --out-raw <file>\tReconstruct a raw disk image from a backup set");
             Console.WriteLine("  restore-physical --set-dir <dir> --disk N\tWrite a backup set directly to a physical disk (DESTRUCTIVE)");
-            Console.WriteLine("  verify --in <file> [--parallel N] [--quick]\tVerify chunk checksums and integrity (use --quick for faster sampling-based verify)");
+            Console.WriteLine("  verify --in <file> [--parallel N] [--quick] [--plain]\tVerify chunk checksums and integrity (use --quick for faster sampling-based verify)");
             Console.WriteLine("  export-raw --in <image> --out <raw>\tExport compressed image to raw disk file");
             Console.WriteLine("  export-vhd --in <image> --out <vhd>\tExport compressed image to fixed VHD (mountable in Windows)");
             Console.WriteLine("  export-range --in <image> --offset <bytes> --length <bytes> [--out <file>]\tRead an arbitrary range directly from a compressed image");
@@ -797,6 +892,21 @@ namespace ImagingUtility
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
 #pragma warning restore CA1416
+        }
+
+        private static string ComputeFileSha256Safe(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var hash = sha.ComputeHash(fs);
+                return Convert.ToHexString(hash).ToLowerInvariant();
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static IEnumerable<string> ParseVolumes(string volumesArg)
