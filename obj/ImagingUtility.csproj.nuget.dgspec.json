@@ -59,6 +59,12 @@
               "target": "Package",
               "version": "[0.16.13, )"
             },
+            "Microsoft.NET.ILLink.Tasks": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.14, )",
+              "autoReferenced": true
+            },
             "System.Management": {
               "target": "Package",
               "version": "[7.0.0, )"

@@ -71,6 +71,14 @@ namespace ImagingUtility
                         parallel = pval;
                     var parCtlFile = GetArgValue(args, "--parallel-control-file");
                     var parCtlPipe = GetArgValue(args, "--parallel-control-pipe");
+                    var enableAdaptive = !Array.Exists(args, a => a.Equals("--no-adaptive-concurrency", StringComparison.OrdinalIgnoreCase)); // Default ON
+                    var enableOptimizedReader = !Array.Exists(args, a => a.Equals("--no-optimized-reader", StringComparison.OrdinalIgnoreCase)); // Default ON
+                    var maxThroughputArg = GetArgValue(args, "--max-throughput");
+                    var enableAdaptiveRateLimit = Array.Exists(args, a => a.Equals("--adaptive-rate-limit", StringComparison.OrdinalIgnoreCase));
+                    var skipHashes = Array.Exists(args, a => a.Equals("--skip-hashes", StringComparison.OrdinalIgnoreCase));
+                    long? maxThroughput = null;
+                    if (!string.IsNullOrEmpty(maxThroughputArg) && long.TryParse(maxThroughputArg, out var mt) && mt > 0)
+                        maxThroughput = mt;
                     if (!string.IsNullOrEmpty(chunkSizeArg))
                     {
                         if (TryParseSize(chunkSizeArg, out long cs) && cs > 0 && cs <= int.MaxValue)
@@ -131,7 +139,9 @@ namespace ImagingUtility
 
                         Console.WriteLine($"Imaging device {deviceToRead} to {outArg} ...");
                         var overallSw = System.Diagnostics.Stopwatch.StartNew();
-                        using var reader = new RawDeviceReader(deviceToRead);
+                        IBlockReader reader = enableOptimizedReader ? 
+                            new OptimizedDeviceReader(deviceToRead) : 
+                            new RawDeviceReader(deviceToRead);
                         // If resume and output exists with a valid footer, resume from last chunk
                         var append = resume && File.Exists(outArg);
                         List<IndexEntry>? existingIndex = null;
@@ -161,6 +171,19 @@ namespace ImagingUtility
                         int finalChunk = chunkSize ?? ResolveDefaultChunkSize(effectiveParallel, pipelineDepth);
                         var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, finalChunk, append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
                         Func<int>? getDesired = BuildParallelProvider(effectiveParallel, parCtlFile, parCtlPipe);
+                        
+                        // Override with adaptive concurrency if enabled
+                        if (enableAdaptive)
+                        {
+                            // For I/O-bound operations, use fewer workers to avoid contention
+                            // Start with 2-3 workers for single disk, scale up for multiple disks
+                            int optimalWorkers = Math.Min(3, Environment.ProcessorCount);
+                            var adaptiveProvider = new AdaptiveParallelProvider(optimalWorkers, pipelineDepth);
+                            getDesired = () => adaptiveProvider.GetParallel();
+                            // Also override the parallel parameter for initial setup
+                            effectiveParallel = optimalWorkers;
+                            Console.WriteLine($"[OPTIMIZATION] Adaptive concurrency enabled (starting with {optimalWorkers} workers)");
+                        }
                         using (var p = new ConsoleProgressScope($"Imaging {deviceToRead}"))
                         {
                             bool canUsedOnly = usedOnly && reader.TryGetNtfsBytesPerCluster(out _);
@@ -446,6 +469,7 @@ namespace ImagingUtility
                     ComputeParallelDefaults(parallel, pipeDepthArg, out effectiveParallel, out pipelineDepth);
                     var parCtlFileB = GetArgValue(args, "--parallel-control-file");
                     var parCtlPipeB = GetArgValue(args, "--parallel-control-pipe");
+                    var skipHashes = Array.Exists(args, a => a.Equals("--skip-hashes", StringComparison.OrdinalIgnoreCase));
                     if (string.IsNullOrEmpty(diskArg) || string.IsNullOrEmpty(outDirArg) || !int.TryParse(diskArg, out var diskNum))
                     {
                         Console.Error.WriteLine("Usage: backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through]");
@@ -454,7 +478,7 @@ namespace ImagingUtility
                     Console.WriteLine($"Building backup set for disk {diskNum} -> {outDirArg} (useVss={useVss}) ...");
                     var swBackup = System.Diagnostics.Stopwatch.StartNew();
                     var getDesiredB = BuildParallelProvider(effectiveParallel, parCtlFileB, parCtlPipeB);
-                    await BackupSetBuilder.BuildBackupSetAsync(diskNum, outDirArg, useVss, effectiveParallel, getDesiredB, pipelineDepth, writeThrough);
+                    await BackupSetBuilder.BuildBackupSetAsync(diskNum, outDirArg, useVss, effectiveParallel, getDesiredB, pipelineDepth, writeThrough, !skipHashes);
                     swBackup.Stop();
                     Console.WriteLine($"Backup set complete. Elapsed: {ConsoleProgressScope.FormatTime(swBackup.Elapsed)}");
                     return 0;
@@ -865,7 +889,7 @@ namespace ImagingUtility
         }
 
         [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, CharSet = System.Runtime.InteropServices.CharSet.Auto)]
-        private class MEMORYSTATUSEX
+        public class MEMORYSTATUSEX
         {
             public uint dwLength = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MEMORYSTATUSEX));
             public uint dwMemoryLoad;
@@ -880,16 +904,16 @@ namespace ImagingUtility
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
         [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        private static extern bool GlobalMemoryStatusEx([System.Runtime.InteropServices.In] MEMORYSTATUSEX lpBuffer);
+        public static extern bool GlobalMemoryStatusEx([System.Runtime.InteropServices.In] MEMORYSTATUSEX lpBuffer);
 
     static void PrintHelp()
         {
             Console.WriteLine("ImagingUtility - simple prototype\n");
             Console.WriteLine("Commands:");
             Console.WriteLine("  list\t\tList physical drives");
-            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, dynamic parallel/pipeline targeting ~4 total)".Replace(" ", string.Empty));
+            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--no-adaptive-concurrency] [--no-optimized-reader] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, adaptive concurrency ON, optimized reader ON)".Replace(" ", string.Empty));
             Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
-            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
+            Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--skip-hashes] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
             Console.WriteLine("  verify-set --set-dir <dir> [--quick] [--parallel N] [--plain]\tVerify a full backup set: manifest, raw-dump hashes, and per-image verification");
             Console.WriteLine("  restore-set --set-dir <dir> --out-raw <file>\tReconstruct a raw disk image from a backup set");
             Console.WriteLine("  restore-physical --set-dir <dir> --disk N\tWrite a backup set directly to a physical disk (DESTRUCTIVE)");

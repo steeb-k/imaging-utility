@@ -1,12 +1,13 @@
 {
   "version": 2,
-  "dgSpecHash": "5iJcjCZeYQc=",
+  "dgSpecHash": "vFtmCZdAFmY=",
   "success": true,
   "projectFilePath": "C:\\Users\\steeb\\imaging-utility\\ImagingUtility.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\steeb\\.nuget\\packages\\discutils.core\\0.16.13\\discutils.core.0.16.13.nupkg.sha512",
     "C:\\Users\\steeb\\.nuget\\packages\\discutils.ntfs\\0.16.13\\discutils.ntfs.0.16.13.nupkg.sha512",
     "C:\\Users\\steeb\\.nuget\\packages\\discutils.streams\\0.16.13\\discutils.streams.0.16.13.nupkg.sha512",
+    "C:\\Users\\steeb\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.14\\microsoft.net.illink.tasks.8.0.14.nupkg.sha512",
     "C:\\Users\\steeb\\.nuget\\packages\\microsoft.netcore.platforms\\5.0.0\\microsoft.netcore.platforms.5.0.0.nupkg.sha512",
     "C:\\Users\\steeb\\.nuget\\packages\\system.codedom\\7.0.0\\system.codedom.7.0.0.nupkg.sha512",
     "C:\\Users\\steeb\\.nuget\\packages\\system.management\\7.0.0\\system.management.7.0.0.nupkg.sha512",

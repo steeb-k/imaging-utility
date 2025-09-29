@@ -9,7 +9,7 @@ namespace ImagingUtility
 {
     internal static class BackupSetBuilder
     {
-    public static async Task BuildBackupSetAsync(int diskNumber, string outDir, bool useVss, int? parallel = null, Func<int>? getDesired = null, int pipelineDepth = 2, bool writeThrough = false)
+    public static async Task BuildBackupSetAsync(int diskNumber, string outDir, bool useVss, int? parallel = null, Func<int>? getDesired = null, int pipelineDepth = 2, bool writeThrough = false, bool computeHashes = true)
         {
             Directory.CreateDirectory(outDir);
 
@@ -25,7 +25,21 @@ namespace ImagingUtility
             string ptDump = Path.Combine(outDir, $"disk{diskNumber}-pt.bin");
             await DumpFirstBytesAsync($"\\\\.\\PhysicalDrive{diskNumber}", ptDump, 1048576);
             manifest.PartitionTableDump = Path.GetFileName(ptDump);
-            try { manifest.PartitionTableDumpSha256 = ComputeFileSha256(ptDump); } catch { }
+            if (computeHashes)
+            {
+                try 
+                { 
+                    manifest.PartitionTableDumpSha256 = ComputeFileSha256(ptDump); 
+                    if (manifest.PartitionTableDumpSha256 != null)
+                    {
+                        Console.WriteLine($"Partition table SHA256 computed: {manifest.PartitionTableDumpSha256[..16]}...");
+                    }
+                } 
+                catch (Exception ex) 
+                { 
+                    Console.WriteLine($"Partition table SHA256 computation failed: {ex.Message}");
+                }
+            }
 
             // 2) Separate partitions into VSS-capable and raw-needed
             var vssVolumes = layout.Partitions
@@ -69,7 +83,8 @@ namespace ImagingUtility
                     string imgName = $"part{p.Index:D2}-{Sanitize(vol)}.skzimg";
                     string outPath = Path.Combine(outDir, imgName);
 
-                    using var reader = new RawDeviceReader(device);
+                    // Use optimized reader for better performance
+                    using var reader = new OptimizedDeviceReader(device);
                     var fopts = writeThrough ? FileOptions.WriteThrough : FileOptions.None;
                     using var outFs = new FileStream(outPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, fopts);
                     // Prefer larger chunks for throughput; fallback to 64MiB if memory constrained.
@@ -77,16 +92,37 @@ namespace ImagingUtility
                     int pipeline = Math.Max(1, pipelineDepth);
                     int chunk = ResolveDefaultChunkSizeSafe(par, pipeline);
                     var writer = new ChunkedZstdWriter(outFs, reader.SectorSize, chunk, deviceLength: reader.TotalSize);
+                    
+                    // Enable adaptive concurrency for backup operations
+                    var monitor = new PerformanceMonitor();
+                    var adaptiveProvider = new AdaptiveParallelProvider(Math.Min(3, Environment.ProcessorCount), pipelineDepth);
+                    var adaptiveGetDesired = () => adaptiveProvider.GetParallel();
+                    
                     using (var prog = new ConsoleProgressScope($"Imaging {vol}"))
                     {
                         // Default to used-only for NTFS sets (faster, smaller); fall back to full if bitmap not available
                         if (reader.TryGetNtfsBytesPerCluster(out _))
-                            writer.WriteAllocatedOnly(reader, (done, total) => prog.Report(done, total), parallel, getDesired, pipelineDepth);
+                            writer.WriteAllocatedOnly(reader, (done, total) => prog.Report(done, total), parallel, adaptiveGetDesired, pipelineDepth, enableAdaptiveConcurrency: true);
                         else
-                            await writer.WriteFromAsync(reader, 0, p.Size, (done, total) => prog.Report(done, total), parallel, getDesired, pipelineDepth); // cap to partition size
+                            await writer.WriteFromAsync(reader, 0, p.Size, (done, total) => prog.Report(done, total), parallel, adaptiveGetDesired, pipelineDepth, enableAdaptiveConcurrency: true); // cap to partition size
                     }
 
-                    string? imgSha = null; try { imgSha = ComputeFileSha256(outPath); } catch { }
+                    string? imgSha = null; 
+                    if (computeHashes)
+                    {
+                        try 
+                        { 
+                            imgSha = ComputeFileSha256(outPath); 
+                            if (imgSha != null)
+                            {
+                                Console.WriteLine($"Image SHA256 computed: {imgSha[..16]}...");
+                            }
+                        } 
+                        catch (Exception ex) 
+                        { 
+                            Console.WriteLine($"Image SHA256 computation failed: {ex.Message}");
+                        }
+                    }
                     manifest.Partitions.Add(new PartitionEntry
                     {
                         Index = p.Index,
@@ -111,7 +147,27 @@ namespace ImagingUtility
                         await DumpPartitionRawAsync(diskNumber, p.StartingOffset, p.Size, outPath, (done, total) => prog.Report(done, total));
                     }
 
-                    string? rawSha = null; try { rawSha = ComputeFileSha256(outPath); } catch { }
+                    string? rawSha = null; 
+                    if (computeHashes)
+                    {
+                        try 
+                        { 
+                            Console.WriteLine($"Computing SHA256 for {Path.GetFileName(outPath)} ({p.Size / (1024*1024*1024):F1} GB)...");
+                            rawSha = ComputeFileSha256(outPath); 
+                            if (rawSha != null)
+                            {
+                                Console.WriteLine($"SHA256 computed: {rawSha[..16]}...");
+                            }
+                        } 
+                        catch (Exception ex) 
+                        { 
+                            Console.WriteLine($"SHA256 computation failed: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Skipping SHA256 computation for {Path.GetFileName(outPath)}");
+                    }
                     manifest.Partitions.Add(new PartitionEntry
                     {
                         Index = p.Index,
@@ -342,6 +398,15 @@ namespace ImagingUtility
 
         private static string ComputeFileSha256(string path)
         {
+            var fileInfo = new FileInfo(path);
+            const long MAX_HASH_SIZE = 1024L * 1024L * 1024L; // 1GB cutoff
+            
+            if (fileInfo.Length > MAX_HASH_SIZE)
+            {
+                Console.WriteLine($"Skipping SHA256 for large file: {Path.GetFileName(path)} ({fileInfo.Length / (1024.0 * 1024.0 * 1024.0):F1} GB > 1.0 GB limit)");
+                return null;
+            }
+            
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             using var sha = SHA256.Create();
             var hash = sha.ComputeHash(fs);

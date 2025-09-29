@@ -308,11 +308,17 @@ namespace ImagingUtility
     public const uint GENERIC_WRITE = 0x40000000;
         public const uint FILE_SHARE_READ = 0x00000001;
         public const uint FILE_SHARE_WRITE = 0x00000002;
+        public const uint FILE_SHARE_NONE = 0x00000000;
     public const uint OPEN_EXISTING = 3;
     public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
     public const uint FILE_FLAG_SEQUENTIAL_SCAN = 0x08000000;
-    public const uint FILE_SHARE_DELETE = 0x00000004;
+        public const uint FILE_SHARE_DELETE = 0x00000004;
+        
+        // Volume control constants
+        public const uint FSCTL_LOCK_VOLUME = 0x90018;
+        public const uint FSCTL_DISMOUNT_VOLUME = 0x90020;
+        public const uint FSCTL_UNLOCK_VOLUME = 0x9001C;
 
         public const uint IOCTL_DISK_GET_DRIVE_GEOMETRY_EX = 0x000700A0;
         public const uint IOCTL_DISK_GET_LENGTH_INFO = 0x0007405C;
@@ -399,6 +405,13 @@ namespace ImagingUtility
         public static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode,
             ref STARTING_LCN_INPUT_BUFFER lpInBuffer, int nInBufferSize,
             byte[] lpOutBuffer, int nOutBufferSize,
+            out int lpBytesReturned, IntPtr lpOverlapped);
+
+        // Volume control overloads
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode,
+            IntPtr lpInBuffer, int nInBufferSize,
+            IntPtr lpOutBuffer, int nOutBufferSize,
             out int lpBytesReturned, IntPtr lpOverlapped);
     }
 }

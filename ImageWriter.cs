@@ -150,9 +150,12 @@ namespace ImagingUtility
             _wroteHeader = true;
         }
 
-    public async Task<(int chunksWritten, long lastDeviceOffset)> WriteFromAsync(IBlockReader reader, long startDeviceOffset = 0, long? maxBytes = null, Action<long,long>? progress = null, int? parallel = null, Func<int>? getDesiredParallel = null, int pipelineDepth = 2)
+        public async Task<(int chunksWritten, long lastDeviceOffset)> WriteFromAsync(IBlockReader reader, long startDeviceOffset = 0, long? maxBytes = null, Action<long,long>? progress = null, int? parallel = null, Func<int>? getDesiredParallel = null, int pipelineDepth = 2, bool enableAdaptiveConcurrency = false)
         {
             if (!_wroteHeader) WriteHeader();
+            
+            var pipelineStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            Console.WriteLine($"Starting pipeline with {parallel ?? Environment.ProcessorCount} workers, depth {pipelineDepth}");
 
             // Parallel pipeline: read -> compress -> write (ordered)
             using var _ = new System.Threading.CancellationTokenSource(); // placeholder to preserve prior using
@@ -196,26 +199,29 @@ namespace ImagingUtility
                 });
             }
 
-            // Writer (ordered)
+            // Writer (ordered) - Optimized async writes
             var writerTask = Task.Run(async () =>
             {
                 var pending = new Dictionary<int, (long devOff, int ulen, byte[] hash, byte[] comp)>();
+                var headerBuffer = new byte[ImageFormat.ChunkHeaderSize];
                 foreach (var item in compBlocks.GetConsumingEnumerable())
                 {
                     pending[item.idx] = (item.devOff, item.ulen, item.hash, item.comp);
                     while (pending.TryGetValue(nextWriteIndex, out var w))
                     {
                         long payloadPos = _out.Position + ImageFormat.ChunkHeaderSize;
-                        using (var bw = new BinaryWriter(_out, Encoding.UTF8, leaveOpen: true))
-                        {
-                            bw.Write(nextWriteIndex);
-                            bw.Write(w.devOff);
-                            bw.Write(w.ulen);
-                            bw.Write(w.comp.Length);
-                            bw.Write(w.hash);
-                            bw.Flush();
-                        }
+                        
+                        // Write header asynchronously without BinaryWriter
+                        var headerSpan = headerBuffer.AsSpan();
+                        BitConverter.TryWriteBytes(headerSpan, nextWriteIndex);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(4), w.devOff);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(12), w.ulen);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(16), w.comp.Length);
+                        w.hash.CopyTo(headerSpan.Slice(20));
+                        
+                        await _out.WriteAsync(headerBuffer, 0, ImageFormat.ChunkHeaderSize);
                         await _out.WriteAsync(w.comp, 0, w.comp.Length);
+                        
                         _index.Add(new IndexEntry { DeviceOffset = w.devOff, FileOffset = payloadPos, UncompressedLength = w.ulen, CompressedLength = w.comp.Length });
                         nextWriteIndex++;
                         pending.Remove(nextWriteIndex - 1);
@@ -255,7 +261,7 @@ namespace ImagingUtility
         }
 
         // Used-blocks-only imaging: iterate allocated ranges and write chunks only for those ranges.
-    public (int chunksWritten, long lastDeviceOffset) WriteAllocatedOnly(IBlockReader reader, Action<long,long>? progress = null, int? parallel = null, Func<int>? getDesiredParallel = null, int pipelineDepth = 2)
+    public (int chunksWritten, long lastDeviceOffset) WriteAllocatedOnly(IBlockReader reader, Action<long,long>? progress = null, int? parallel = null, Func<int>? getDesiredParallel = null, int pipelineDepth = 2, bool enableAdaptiveConcurrency = false)
         {
             if (!_wroteHeader) WriteHeader();
             // Parallel pipeline for allocated ranges: enumerate -> read -> compress -> write (ordered)
@@ -296,26 +302,29 @@ namespace ImagingUtility
                 });
             }
 
-            // Writer (ordered) with async writes for smoother I/O
+            // Writer (ordered) with optimized async writes for smoother I/O
             var writerTask = Task.Run(async () =>
             {
                 var pending = new Dictionary<int, (long devOff, int ulen, byte[] hash, byte[] comp)>();
+                var headerBuffer = new byte[ImageFormat.ChunkHeaderSize];
                 foreach (var item in compBlocks.GetConsumingEnumerable())
                 {
                     pending[item.idx] = (item.devOff, item.ulen, item.hash, item.comp);
                     while (pending.TryGetValue(nextWriteIndex, out var w))
                     {
                         long payloadPos = _out.Position + ImageFormat.ChunkHeaderSize;
-                        using (var bw = new BinaryWriter(_out, Encoding.UTF8, leaveOpen: true))
-                        {
-                            bw.Write(nextWriteIndex);
-                            bw.Write(w.devOff);
-                            bw.Write(w.ulen);
-                            bw.Write(w.comp.Length);
-                            bw.Write(w.hash);
-                            bw.Flush();
-                        }
+                        
+                        // Write header asynchronously without BinaryWriter
+                        var headerSpan = headerBuffer.AsSpan();
+                        BitConverter.TryWriteBytes(headerSpan, nextWriteIndex);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(4), w.devOff);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(12), w.ulen);
+                        BitConverter.TryWriteBytes(headerSpan.Slice(16), w.comp.Length);
+                        w.hash.CopyTo(headerSpan.Slice(20));
+                        
+                        await _out.WriteAsync(headerBuffer, 0, ImageFormat.ChunkHeaderSize);
                         await _out.WriteAsync(w.comp, 0, w.comp.Length);
+                        
                         _index.Add(new IndexEntry { DeviceOffset = w.devOff, FileOffset = payloadPos, UncompressedLength = w.ulen, CompressedLength = w.comp.Length });
                         nextWriteIndex++;
                         pending.Remove(nextWriteIndex - 1);
@@ -365,21 +374,32 @@ namespace ImagingUtility
         {
             // layout: 'IDX1' [int32 chunkCount] entries... then 'TAIL' [int64 indexStart]
             long indexStart = _out.Position;
-            using (var bw = new BinaryWriter(_out, Encoding.UTF8, leaveOpen: true))
+            
+            // Write index magic and count
+            _out.Write(ImageFormat.IndexMagic, 0, ImageFormat.IndexMagic.Length);
+            var countBytes = new byte[4];
+            BitConverter.TryWriteBytes(countBytes, _index.Count);
+            _out.Write(countBytes, 0, countBytes.Length);
+            
+            // Write index entries
+            var entryBuffer = new byte[24]; // 8 + 8 + 4 + 4
+            foreach (var e in _index)
             {
-                bw.Write(ImageFormat.IndexMagic);
-                bw.Write(_index.Count);
-                foreach (var e in _index)
-                {
-                    bw.Write(e.DeviceOffset);
-                    bw.Write(e.FileOffset);
-                    bw.Write(e.UncompressedLength);
-                    bw.Write(e.CompressedLength);
-                }
-                bw.Write(ImageFormat.TailMagic);
-                bw.Write(indexStart);
-                bw.Flush();
+                var span = entryBuffer.AsSpan();
+                BitConverter.TryWriteBytes(span, e.DeviceOffset);
+                BitConverter.TryWriteBytes(span.Slice(8), e.FileOffset);
+                BitConverter.TryWriteBytes(span.Slice(16), e.UncompressedLength);
+                BitConverter.TryWriteBytes(span.Slice(20), e.CompressedLength);
+                _out.Write(entryBuffer, 0, entryBuffer.Length);
             }
+            
+            // Write tail magic and index start
+            _out.Write(ImageFormat.TailMagic, 0, ImageFormat.TailMagic.Length);
+            var indexStartBytes = new byte[8];
+            BitConverter.TryWriteBytes(indexStartBytes, indexStart);
+            _out.Write(indexStartBytes, 0, indexStartBytes.Length);
+            
+            _out.Flush();
             return indexStart;
         }
     }
