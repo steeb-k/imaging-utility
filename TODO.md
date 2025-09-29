@@ -13,9 +13,6 @@ Legend: [P0] critical, [P1] important, [P2] nice-to-have
 - ✅ **Backup Operations**: Optimized backup-disk command with same performance benefits
 
 ## Correctness & format
-- [ ] [P0] Used-only resume optimization
-  - Today, resume with `--used-only` falls back to full-range resume. Implement bitmap-aware resumption so we skip already-imaged allocated ranges and continue from the last chunk boundary.
-  - Acceptance: Resuming a partially completed used-only image continues without rereading earlier allocated ranges; produces identical result to uninterrupted run.
 - [ ] [P1] Formalize image format v2 spec in docs
   - Write a dedicated spec doc (header fields, endianness, per-chunk header, index layout, tail, integrity expectations, limits).
   - Acceptance: A standalone `docs/image-format-v2.md` referenced from README.

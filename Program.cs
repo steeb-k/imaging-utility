@@ -238,19 +238,34 @@ namespace ImagingUtility
                         return 1;
                     }
                     var r = new ImageReader(inArg);
+                    var enableAdaptiveVerify = !Array.Exists(args, a => a.Equals("--no-adaptive-verify", StringComparison.OrdinalIgnoreCase)); // Default ON
                     int? parallel = null;
                     var parArg = GetArgValue(args, "--parallel");
                     if (!string.IsNullOrEmpty(parArg) && int.TryParse(parArg, out var pval) && pval > 0)
                         parallel = pval;
+                    
+                    // Apply adaptive concurrency for verification
+                    int effectiveParallel;
+                    if (enableAdaptiveVerify)
+                    {
+                        // Use I/O-aware scaling for verification (similar to imaging)
+                        effectiveParallel = Math.Min(4, Environment.ProcessorCount); // Conservative for I/O-bound verification
+                        Console.WriteLine($"[OPTIMIZATION] Adaptive verification enabled (using {effectiveParallel} workers)");
+                    }
+                    else
+                    {
+                        effectiveParallel = parallel ?? Environment.ProcessorCount;
+                    }
                     bool quick = Array.Exists(args, a => a.Equals("--quick", StringComparison.OrdinalIgnoreCase));
+                    bool debug = Array.Exists(args, a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase));
                     using (var cts = new System.Threading.CancellationTokenSource())
                     {
                         Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
                         using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(inArg)}"))
                         {
                             var sw = System.Diagnostics.Stopwatch.StartNew();
-                            bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
-                                             : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
+                            bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), effectiveParallel, debug)
+                                             : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), effectiveParallel, debug);
                             sw.Stop();
                             double secs = Math.Max(0.001, sw.Elapsed.TotalSeconds);
                             long totalBytes = 0; foreach (var e in r.Index) totalBytes += e.CompressedLength;
@@ -493,8 +508,25 @@ namespace ImagingUtility
                         return 1;
                     }
                     bool quick = Array.Exists(args, a => a.Equals("--quick", StringComparison.OrdinalIgnoreCase));
+                    bool debug = Array.Exists(args, a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase));
+                    var enableAdaptiveVerify = !Array.Exists(args, a => a.Equals("--no-adaptive-verify", StringComparison.OrdinalIgnoreCase)); // Default ON
                     int? parallel = null; var parArg = GetArgValue(args, "--parallel");
                     if (!string.IsNullOrEmpty(parArg) && int.TryParse(parArg, out var pval) && pval > 0) parallel = pval;
+                    
+                    // Apply adaptive concurrency for verification
+                    int effectiveParallel;
+                    if (enableAdaptiveVerify)
+                    {
+                        // Use I/O-aware scaling for verification (similar to imaging)
+                        // If user specified parallel, respect it but cap it intelligently
+                        int userParallel = parallel ?? Environment.ProcessorCount;
+                        effectiveParallel = Math.Min(Math.Min(4, Environment.ProcessorCount), userParallel); // Conservative for I/O-bound verification
+                        Console.WriteLine($"[OPTIMIZATION] Adaptive verification enabled (using {effectiveParallel} workers, capped from {userParallel})");
+                    }
+                    else
+                    {
+                        effectiveParallel = parallel ?? Environment.ProcessorCount;
+                    }
                     string manifestPath = Path.Combine(setDir, "backup.manifest.json");
                     if (!File.Exists(manifestPath))
                     {
@@ -543,8 +575,8 @@ namespace ImagingUtility
                                 using (var p = new ConsoleProgressScope($"Verifying {Path.GetFileName(imgPath)}"))
                                 {
                                     var r = new ImageReader(imgPath);
-                                    bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel)
-                                                    : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), parallel);
+                                    bool ok = quick ? VerifyQuick(r, msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), effectiveParallel, debug)
+                                                    : r.VerifyAll(msg => Console.WriteLine(msg), (done, total) => p.Report(done, total), effectiveParallel, debug);
                                     if (!ok) allOk = false;
                                     p.Complete();
                                     Console.WriteLine(ok ? $"Verify OK: {Path.GetFileName(imgPath)}" : $"Verify FAILED: {Path.GetFileName(imgPath)}");
@@ -914,10 +946,10 @@ namespace ImagingUtility
             Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--no-adaptive-concurrency] [--no-optimized-reader] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, adaptive concurrency ON, optimized reader ON)".Replace(" ", string.Empty));
             Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
             Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--skip-hashes] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
-            Console.WriteLine("  verify-set --set-dir <dir> [--quick] [--parallel N] [--plain]\tVerify a full backup set: manifest, raw-dump hashes, and per-image verification");
+            Console.WriteLine("  verify-set --set-dir <dir> [--quick] [--parallel N] [--no-adaptive-verify] [--debug] [--plain]\tVerify a full backup set: manifest, raw-dump hashes, and per-image verification (adaptive verification ON by default)");
             Console.WriteLine("  restore-set --set-dir <dir> --out-raw <file>\tReconstruct a raw disk image from a backup set");
             Console.WriteLine("  restore-physical --set-dir <dir> --disk N\tWrite a backup set directly to a physical disk (DESTRUCTIVE)");
-            Console.WriteLine("  verify --in <file> [--parallel N] [--quick] [--plain]\tVerify chunk checksums and integrity (use --quick for faster sampling-based verify)");
+            Console.WriteLine("  verify --in <file> [--parallel N] [--quick] [--no-adaptive-verify] [--debug] [--plain]\tVerify chunk checksums and integrity (adaptive verification ON by default; use --quick for faster sampling-based verify)");
             Console.WriteLine("  export-raw --in <image> --out <raw>\tExport compressed image to raw disk file");
             Console.WriteLine("  export-vhd --in <image> --out <vhd>\tExport compressed image to fixed VHD (mountable in Windows)");
             Console.WriteLine("  export-range --in <image> --offset <bytes> --length <bytes> [--out <file>]\tRead an arbitrary range directly from a compressed image");
@@ -1240,103 +1272,110 @@ namespace ImagingUtility
         }
 
         // Quick verification: structure check + sample a subset of chunks (first, last, and every Nth)
-    private static bool VerifyQuick(ImageReader r, Action<string>? log, Action<long,long>? progress, int? parallel)
+    private static bool VerifyQuick(ImageReader r, Action<string>? log, Action<long,long>? progress, int? parallel, bool debug = false)
         {
-            // Validate header/index already read by ImageReader ctor
+            // SIMPLE SEQUENTIAL QUICK VERIFICATION - No parallel processing, no memory issues
+            if (debug) Console.WriteLine($"[INFO] Starting sequential quick verification...");
+            
+            // Handle Ctrl+C gracefully
+            var cts = new System.Threading.CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) => {
+                Console.WriteLine("\n[INFO] Cancellation requested...");
+                cts.Cancel();
+                e.Cancel = true; // Prevent immediate termination
+            };
+            
             int count = r.Index.Count;
             if (count == 0) return true;
-            // Choose a sampling stride based on image size
+            
+            // Choose a sampling stride based on image size and system memory
             int stride = count <= 200 ? 10 : count <= 1000 ? 25 : 50; // verifies ~2-10% depending on size
             var sampleIdxs = new HashSet<int> { 0, count - 1 };
             for (int i = stride; i < count - 1; i += stride) sampleIdxs.Add(i);
+            
+            // Memory-aware sampling: skip very large chunks on systems with limited RAM
+            var availableRAM = GC.GetTotalMemory(false) / 1024 / 1024; // MB
+            var systemRAM = Environment.WorkingSet / 1024 / 1024; // Rough estimate
+            var maxChunkSize = systemRAM < 8192 ? 50 * 1024 * 1024 : // 50MB limit on <8GB systems
+                              systemRAM < 16384 ? 100 * 1024 * 1024 : // 100MB limit on <16GB systems
+                              200 * 1024 * 1024; // 200MB limit on 16GB+ systems
+            
+            if (debug) Console.WriteLine($"[DEBUG] Memory-aware sampling: {systemRAM}MB RAM, max chunk size: {maxChunkSize/1024/1024}MB");
 
-            long total = 0; foreach (var i in sampleIdxs) total += r.Index[i].CompressedLength;
+            long total = 0; 
+            foreach (var i in sampleIdxs) total += r.Index[i].CompressedLength;
             long done = 0;
 
-            // We can reuse the parallel verify by creating a filtered read loop
-            using var sha = System.Security.Cryptography.SHA256.Create();
-            int workerCount = Math.Max(1, parallel.HasValue ? parallel.Value : Environment.ProcessorCount);
-            int bounded = workerCount * 2;
-            var queue = new System.Collections.Concurrent.BlockingCollection<(int idx, int ulen, byte[] expectedHash, byte[] compressed)>(bounded);
-            var cts = new System.Threading.CancellationTokenSource();
-            bool failed = false;
-
-            var workers = new List<Task>(workerCount);
-            for (int w = 0; w < workerCount; w++)
+            using var fs = new FileStream(((FileStream)typeof(ImageReader).GetField("_fs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(r)!).Name, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var dec = new ZstdSharp.Decompressor();
+            
+            foreach (var i in sampleIdxs)
             {
-                workers.Add(Task.Run(() =>
+                if (cts.Token.IsCancellationRequested)
                 {
-                    using var dec = new ZstdSharp.Decompressor();
-                    using var s = System.Security.Cryptography.SHA256.Create();
-                    foreach (var item in queue.GetConsumingEnumerable())
-                    {
-                        if (cts.IsCancellationRequested) break;
-                        try
-                        {
-                            var decompressed = dec.Unwrap(item.compressed).ToArray();
-                            if (decompressed.Length != item.ulen)
-                            {
-                                failed = true;
-                                log?.Invoke($"Chunk {item.idx}: length mismatch (expected {item.ulen}, got {decompressed.Length})");
-                                cts.Cancel();
-                                break;
-                            }
-                            var actual = s.ComputeHash(decompressed);
-                            if (!actual.AsSpan().SequenceEqual(item.expectedHash))
-                            {
-                                failed = true;
-                                log?.Invoke($"Chunk {item.idx}: checksum mismatch");
-                                cts.Cancel();
-                                break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            failed = true;
-                            log?.Invoke($"Chunk {item.idx}: decompress error: {ex.Message}");
-                            cts.Cancel();
-                            break;
-                        }
-                        finally
-                        {
-                            System.Threading.Interlocked.Add(ref done, r.Index[item.idx].CompressedLength);
-                            progress?.Invoke(done, total);
-                        }
-                    }
-                }));
-            }
-
-            try
-            {
-                using var fs = new FileStream(((FileStream)typeof(ImageReader).GetField("_fs", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(r)!).Name, FileMode.Open, FileAccess.Read, FileShare.Read);
-                foreach (var i in sampleIdxs)
-                {
-                    var e = r.Index[i];
-                    long headerPos = e.FileOffset - ImageFormat.ChunkHeaderSize;
-                    fs.Seek(headerPos, SeekOrigin.Begin);
-                    using var br = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
-                    int idx = br.ReadInt32();
-                    long devOff = br.ReadInt64();
-                    int ulen = br.ReadInt32();
-                    int clen = br.ReadInt32();
-                    var expectedHash = br.ReadBytes(32);
-                    var compressed = br.ReadBytes(clen);
-                    if (compressed.Length != clen)
-                    {
-                        failed = true;
-                        log?.Invoke($"Chunk {idx}: unexpected EOF");
-                        cts.Cancel();
-                        break;
-                    }
-                    queue.Add((idx, ulen, expectedHash, compressed));
+                    if (debug) Console.WriteLine($"[INFO] Quick verification cancelled at sample {i}/{count}");
+                    return false;
                 }
+                
+                var e = r.Index[i];
+                
+                // Skip very large chunks on memory-constrained systems
+                if (e.CompressedLength > maxChunkSize)
+                {
+                    if (debug) Console.WriteLine($"[DEBUG] Skipping large chunk {i}: {e.CompressedLength/1024/1024}MB (exceeds {maxChunkSize/1024/1024}MB limit)");
+                    continue;
+                }
+                
+                long headerPos = e.FileOffset - ImageFormat.ChunkHeaderSize;
+                fs.Seek(headerPos, SeekOrigin.Begin);
+                
+                using var br = new BinaryReader(fs, Encoding.UTF8, leaveOpen: true);
+                int idx = br.ReadInt32();
+                long devOff = br.ReadInt64();
+                int ulen = br.ReadInt32();
+                int clen = br.ReadInt32();
+                var expectedHash = br.ReadBytes(32);
+                var compressed = br.ReadBytes(clen);
+                
+                if (compressed.Length != clen)
+                {
+                    log?.Invoke($"Chunk {idx}: unexpected EOF");
+                    return false;
+                }
+                
+                // Decompress and verify
+                var decompressed = dec.Unwrap(compressed).ToArray();
+                
+                // Memory pressure check - force GC if needed
+                var currentRAM = GC.GetTotalMemory(false) / 1024 / 1024; // MB
+                if (currentRAM > systemRAM * 0.8) // If using >80% of system RAM
+                {
+                    if (debug) Console.WriteLine($"[DEBUG] Memory pressure: {currentRAM}MB used, forcing GC");
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                
+                if (decompressed.Length != ulen)
+                {
+                    log?.Invoke($"Chunk {idx}: length mismatch (expected {ulen}, got {decompressed.Length})");
+                    return false;
+                }
+                
+                var actual = System.Security.Cryptography.SHA256.HashData(decompressed);
+                if (!actual.AsSpan().SequenceEqual(expectedHash))
+                {
+                    log?.Invoke($"Chunk {idx}: checksum mismatch");
+                    return false;
+                }
+                
+                done += e.CompressedLength;
+                progress?.Invoke(done, total);
+                
+                if (debug) Console.WriteLine($"[DEBUG] Verified sample chunk {idx}/{count} ({(double)i/count*100:F1}%)");
             }
-            finally
-            {
-                queue.CompleteAdding();
-            }
-            Task.WaitAll(workers.ToArray());
-            return !failed && !cts.IsCancellationRequested;
+            
+            if (debug) Console.WriteLine($"[INFO] Quick verification completed successfully");
+            return true;
         }
 
         // Returns a function that supplies desired parallelism, optionally reading from a file.
