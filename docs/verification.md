@@ -8,6 +8,8 @@ ImagingUtility provides two verification modes to ensure the integrity of compre
 
 - **Full Verification**: Complete integrity check of all data chunks
 - **Quick Verification**: Sampling-based verification for faster results
+- **Automatic Hash Cutoff**: Files >1GB automatically skip SHA256 computation for performance
+- **Optional Hash Skipping**: Use `--skip-hashes` for faster backup operations
 
 Both modes create persistent acknowledgment files to track verification status.
 
@@ -47,6 +49,34 @@ Quick verification uses statistical sampling to verify image integrity:
 - Development testing
 
 **Performance:** Much faster while providing high confidence in data integrity.
+
+## Hash Computation and Large Files
+
+### Automatic 1GB Cutoff
+
+For performance reasons, ImagingUtility automatically skips SHA256 computation on files larger than 1GB:
+
+- **Files < 1GB**: Full SHA256 hash computation and verification
+- **Files ≥ 1GB**: Hash computation skipped with clear console message
+- **Manifest**: Records `null` for skipped hashes in backup manifests
+
+### Hash Skipping Options
+
+```bash
+# Skip all hash computation for faster backups
+ImagingUtility.exe backup-disk --disk 0 --out-dir "C:\Backups" --skip-hashes
+
+# Normal operation (automatic cutoff applies)
+ImagingUtility.exe backup-disk --disk 0 --out-dir "C:\Backups"
+```
+
+### Verification of Large Files
+
+When verifying backup sets with large files:
+
+- **Small files**: Full hash verification if available
+- **Large files**: File existence and size verification only
+- **Mixed sets**: Combination of hash and size verification
 
 ## Command Usage
 
