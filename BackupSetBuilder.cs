@@ -413,11 +413,11 @@ namespace ImagingUtility
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
 
-        // Local copy of default chunk heuristic (prefer 512MiB, fallback to 64MiB if available memory is low)
+        // Local copy of default chunk heuristic (prefer 64MiB for better memory efficiency during verification)
         private static int ResolveDefaultChunkSizeSafe(int effectiveParallel, int pipelineDepth)
         {
-            const long preferred = 512L * 1024 * 1024; // 512 MiB
-            const long fallback = 64L * 1024 * 1024;   // 64 MiB
+            const long preferred = 64L * 1024 * 1024;   // 64 MiB (better for verification)
+            const long fallback = 32L * 1024 * 1024;   // 32 MiB (fallback for very constrained systems)
             long neededPreferred = (long)effectiveParallel * pipelineDepth * preferred + (128L * 1024 * 1024);
             long free = GetApproxAvailableMemorySafe();
             if (free <= 0) return (int)preferred;

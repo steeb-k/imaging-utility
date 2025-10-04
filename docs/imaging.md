@@ -70,8 +70,8 @@ ImagingUtility uses zstd (Zstandard) compression for optimal balance of speed an
 #### Compression Characteristics
 
 - **Algorithm**: zstd with default compression level
-- **Chunk-based**: Compresses data in configurable chunks (default: 512 MiB)
-- **Adaptive Fallback**: Reduces chunk size to 64 MiB if memory constrained
+- **Chunk-based**: Compresses data in configurable chunks (default: 64 MiB)
+- **Adaptive Fallback**: Reduces chunk size to 32 MiB if memory constrained
 - **Streaming**: Processes data in streaming fashion for large images
 
 #### Compression Benefits

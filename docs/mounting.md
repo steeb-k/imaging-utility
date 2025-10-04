@@ -42,14 +42,44 @@ Tip: With backup sets, you can use `--set-dir` and `--partition` to locate the r
 
 ### Map to a drive letter without AIM (WebDAV)
 
-You can map the userspace NTFS view to a drive letter using the built-in Windows WebDAV Redirector and the `ntfs-webdav` command.
+You can map filesystem views to drive letters using the built-in Windows WebDAV Redirector. Support is available for NTFS, FAT32, and exFAT filesystems.
 
-1) Start the WebDAV server against your image/partition:
+#### One-Command Solution (Recommended)
+
+The `mount-webdav` command handles everything automatically - starting the WebDAV server and mapping the drive letter:
 
 ```powershell
+# Automatic filesystem detection (recommended for v3 images)
+ImagingUtility.exe mount-webdav --in 'F:\Backups\Partition3.skzimg' --offset 0 --drive Z
+ImagingUtility.exe mount-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --drive Y
+ImagingUtility.exe mount-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --drive X
+
+# Using backup sets (auto-resolves partition and filesystem)
+ImagingUtility.exe mount-webdav --set-dir 'F:\Backups\Disk0-Set' --partition 3 --drive Z
+
+# Manual filesystem specification (still supported)
+ImagingUtility.exe mount-webdav --in 'F:\Backups\Partition3.skzimg' --offset 0 --filesystem ntfs --drive Z
+ImagingUtility.exe mount-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --filesystem fat --drive Y
+ImagingUtility.exe mount-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --filesystem exfat --drive X
+```
+
+#### Manual Two-Step Process
+
+If you prefer manual control, you can start the WebDAV server and map the drive separately:
+
+1) Start the appropriate WebDAV server:
+
+```powershell
+# NTFS
 ImagingUtility.exe ntfs-webdav --set-dir 'F:\Backups\Disk0-Set' --partition 3 --port 18081
 # or, without a set:
 ImagingUtility.exe ntfs-webdav --in 'F:\Backups\Partition3.skzimg' --offset 0 --port 18081
+
+# FAT32
+ImagingUtility.exe fat-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --port 18082
+
+# exFAT
+ImagingUtility.exe exfat-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --port 18083
 ```
 
 2) Ensure the WebClient service is running (required by the redirector):
@@ -61,15 +91,57 @@ Start-Service WebClient
 3) Map a drive letter to the WebDAV share:
 
 ```powershell
-net use Z: http://127.0.0.1:18081/ /persistent:no
+net use Z: http://127.0.0.1:18081/ /persistent:no  # NTFS
+net use Y: http://127.0.0.1:18082/ /persistent:no  # FAT32
+net use X: http://127.0.0.1:18083/ /persistent:no  # exFAT
 ```
 
-You should now see drive Z: in Explorer. This is read-only and bypasses NTFS ACLs (permissions are not enforced server-side).
+You should now see the mapped drives in Explorer. These are read-only and bypass filesystem ACLs (permissions are not enforced server-side).
+
+#### Automatic Cleanup
+
+The `mount-webdav` command includes automatic cleanup features:
+
+- **Process monitoring**: Automatically unmounts the drive when the parent process terminates
+- **GUI-friendly**: Works seamlessly with GUI applications - drive letters are automatically cleaned up when the application closes
+- **Manual cleanup**: Press Ctrl+C to unmount and stop the WebDAV server
+- **Multi-level support**: Handles complex process hierarchies (GUI → ImagingUtility → WebDAV server)
+- **Automatic port detection**: If the default port is in use, automatically finds the next available port
+- **Elevation separation**: WebDAV server runs as Administrator, drive mapping runs as current user for proper Windows Explorer visibility
+
+#### Filesystem Support
+
+| Filesystem | Command | Default Port | Features |
+|------------|---------|--------------|----------|
+| NTFS | `ntfs-webdav` / `mount-webdav --filesystem ntfs` | 18081 | Full ACL bypass, file permissions ignored |
+| FAT32 | `fat-webdav` / `mount-webdav --filesystem fat` | 18082 | No permissions, all files accessible |
+| exFAT | `exfat-webdav` / `mount-webdav --filesystem exfat` | 18083 | No permissions, large file support |
+
+#### Automatic Filesystem Detection
+
+The `mount-webdav` command can automatically detect the filesystem type using multiple methods:
+
+1. **Backup Set Manifest**: When using `--set-dir` and `--partition`, reads filesystem from `backup.manifest.json`
+2. **Image Metadata**: For v3 images, reads filesystem information stored in the image header
+3. **Manual Override**: Still accepts `--filesystem` parameter for explicit specification
+
+**Detection Priority:**
+- Backup set manifest (highest priority)
+- Image metadata (v3 images only)
+- Manual `--filesystem` parameter
+- Error if none available
+
+**Example Output:**
+```
+Using filesystem from manifest: NTFS
+Using filesystem from image metadata: FAT32
+```
 
 Troubleshooting:
-- “System error 67”: the WebClient service is not running.
+- "System error 67": the WebClient service is not running.
 - Slow transfers: the WebDAV redirector is chatty and may be slower than local mounts; for bulk extraction, use `ntfs-extract` or `export-vhd`.
 - Authentication prompts: the server is anonymous; usually you can press Enter. If your environment enforces auth, configure WebDAV client policies as needed.
+- "This tool must be run as Administrator": WebDAV servers require administrator privileges; use `mount-webdav` for automatic elevation handling.
 
 ## 3) Convert to VHD and mount with Windows (needs space)
 

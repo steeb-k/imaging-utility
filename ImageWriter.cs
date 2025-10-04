@@ -97,7 +97,7 @@ namespace ImagingUtility
         public static readonly byte[] HeaderMagic = Encoding.ASCII.GetBytes("IMG1");
         public static readonly byte[] IndexMagic = Encoding.ASCII.GetBytes("IDX1");
         public static readonly byte[] TailMagic = Encoding.ASCII.GetBytes("TAIL");
-        public const int Version = 2; // v2 adds DeviceLength to header to support sparse/used-only export
+        public const int Version = 3; // v3 adds filesystem metadata to header
         public const int ChunkHeaderSize = 4 + 8 + 4 + 4 + 32; // idx + devOff + uLen + cLen + sha256
     }
 
@@ -117,8 +117,9 @@ namespace ImagingUtility
         private readonly List<IndexEntry> _index;
         private bool _wroteHeader;
         private long _deviceLength;
+        private readonly string? _filesystem;
 
-    public ChunkedZstdWriter(Stream outStream, int sectorSize, int chunkSize = 64 * 1024 * 1024, bool append = false, List<IndexEntry>? existingIndex = null, long deviceLength = 0)
+    public ChunkedZstdWriter(Stream outStream, int sectorSize, int chunkSize = 64 * 1024 * 1024, bool append = false, List<IndexEntry>? existingIndex = null, long deviceLength = 0, string? filesystem = null)
         {
             _out = outStream ?? throw new ArgumentNullException(nameof(outStream));
             _sectorSize = sectorSize;
@@ -126,6 +127,7 @@ namespace ImagingUtility
             _index = existingIndex ?? new List<IndexEntry>();
             _wroteHeader = append;
             _deviceLength = deviceLength;
+            _filesystem = filesystem;
             if (!append)
             {
                 WriteHeader();
@@ -146,6 +148,19 @@ namespace ImagingUtility
             bw.Write(_sectorSize);
             bw.Write(_chunkSize);
             bw.Write(_deviceLength);
+            
+            // Write filesystem metadata (v3)
+            if (!string.IsNullOrEmpty(_filesystem))
+            {
+                var fsBytes = Encoding.UTF8.GetBytes(_filesystem);
+                bw.Write(fsBytes.Length); // Length of filesystem string
+                bw.Write(fsBytes); // Filesystem string
+            }
+            else
+            {
+                bw.Write(0); // No filesystem metadata
+            }
+            
             bw.Flush();
             _wroteHeader = true;
         }

@@ -66,18 +66,18 @@ Legend: [P0] critical, [P1] important, [P2] nice-to-have
   - [x] Initial read-only proxy server (TCP + named pipe) with windowing
     - Implemented `serve-proxy` with `--host/--port` and `--pipe` to expose image bytes over a simple read protocol; supports `--offset/--length` partition windowing and zero-fill semantics.
     - Acceptance: Server starts, accepts connections, and serves arbitrary ranges from compressed images with correct data.
-  - [ ] [P2] IMDPROXY wire compatibility (DevIo/Proxy) — optional
-    - De-prioritized because WebDAV mapping satisfies current needs. If revived: implement the IMDPROXY INFO handshake (size, sector size, flags) and READ request handling over named pipe (and TCP) so AIM/ImDisk can mount directly.
-    - Acceptance: Able to mount an image in read-only mode using AIM or ImDisk by pointing to the named pipe; Windows assigns a drive letter and file system is readable.
-  - [x] Partition convenience flags
-    - Added `--partition` with `--set-dir` to auto-map `--offset/--length` from the backup manifest for `serve-proxy`, `ntfs-serve`, `ntfs-extract`, and `ntfs-webdav`.
-    - Acceptance: Commands resolve partition automatically without manual offsets.
-  - [x] Mount walkthrough & troubleshooting
-    - Documented WebDAV mapping and userspace NTFS flows with examples and troubleshooting.
-    - Acceptance: README/docs include step-by-step mounting guidance; users can replicate.
-  - [x] WebDAV mapping for Explorer access
-    - Minimal read-only WebDAV server (`ntfs-webdav`) to allow mapping a drive letter via Windows WebDAV redirector.
-    - Acceptance: `net use Z: http://127.0.0.1:18081/` maps a read-only drive backed by the image.
+- [ ] [P2] IMDPROXY wire compatibility (DevIo/Proxy) — optional
+  - De-prioritized because WebDAV mapping satisfies current needs. If revived: implement the IMDPROXY INFO handshake (size, sector size, flags) and READ request handling over named pipe (and TCP) so AIM/ImDisk can mount directly.
+  - Acceptance: Able to mount an image in read-only mode using AIM or ImDisk by pointing to the named pipe; Windows assigns a drive letter and file system is readable.
+- [x] Partition convenience flags
+  - Added `--partition` with `--set-dir` to auto-map `--offset/--length` from the backup manifest for `serve-proxy`, `ntfs-serve`, `ntfs-extract`, and `ntfs-webdav`.
+  - Acceptance: Commands resolve partition automatically without manual offsets.
+- [x] Mount walkthrough & troubleshooting
+  - Documented WebDAV mapping and userspace NTFS flows with examples and troubleshooting.
+  - Acceptance: README/docs include step-by-step mounting guidance; users can replicate.
+- [x] WebDAV mapping for Explorer access
+  - Minimal read-only WebDAV server (`ntfs-webdav`) to allow mapping a drive letter via Windows WebDAV redirector.
+  - Acceptance: `net use Z: http://127.0.0.1:18081/` maps a read-only drive backed by the image.
 - [ ] [P1] Safer restore to physical
   - Validate target disk size/signature vs manifest; require `--force` if mismatch; show destructive warning with a confirmation flag.
   - Acceptance: Accidental mismatched restores are blocked by default.
@@ -87,6 +87,14 @@ Legend: [P0] critical, [P1] important, [P2] nice-to-have
   - Note: Added conditional hash computation with 1GB cutoff; manifest handles null hashes for large files.
 - [ ] [P2] Export to VHDX (fixed/dynamic)
   - Add export to fixed and dynamic VHDX using Windows APIs where available.
+
+## Disk Cloning
+- [ ] [P0] Ability to restore disk-set to a disk
+  - I THINK this is already doable, but it has not been tested
+- [ ] [P0] Ability to restore disk-set to a different-sized disk with on-the-fly partition resizing
+  - Mostly important for NTFS partitions - not truly necessary to resize other partition types in Windows environments
+- [ ] [P0] Ability to dump Windows installation from MBR physical disk or backup set to EFI-formatted disk and rebuild the BCD
+  - I know how to do all of this via `diskpart` but might be able to use other tools? We'll get to it.
 
 ## Testing & CI
 - [ ] [P0] Unit tests for core components

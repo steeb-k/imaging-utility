@@ -18,7 +18,8 @@ namespace ImagingUtility
         public int ChunkSize { get; private set; }
         public long IndexStart { get; private set; }
         public List<IndexEntry> Index { get; } = new();
-    public long DeviceLength { get; private set; }
+        public long DeviceLength { get; private set; }
+        public string? FileSystem { get; private set; }
 
         public ImageReader(string path)
         {
@@ -46,6 +47,17 @@ namespace ImagingUtility
             if (Version >= 2)
             {
                 DeviceLength = br.ReadInt64();
+            }
+            
+            // Read filesystem metadata (v3)
+            if (Version >= 3)
+            {
+                int fsLength = br.ReadInt32();
+                if (fsLength > 0)
+                {
+                    var fsBytes = br.ReadBytes(fsLength);
+                    FileSystem = Encoding.UTF8.GetString(fsBytes);
+                }
             }
         }
 

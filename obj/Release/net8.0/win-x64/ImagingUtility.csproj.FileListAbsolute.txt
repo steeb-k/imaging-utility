@@ -2,7 +2,6 @@ c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ImagingUtility.exe
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ImagingUtility.deps.json
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ImagingUtility.runtimeconfig.json
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ImagingUtility.dll
-c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ImagingUtility.pdb
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\System.CodeDom.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\System.Management.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ZstdSharp.dll
@@ -14,7 +13,6 @@ c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.csproj.
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingU.80A6E31B.Up2Date
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.dll
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\refint\ImagingUtility.dll
-c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.pdb
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.genruntimeconfig.cache
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ref\ImagingUtility.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\Microsoft.CSharp.dll
@@ -202,4 +200,6 @@ c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\msquic.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Core.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Ntfs.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Streams.dll
-c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-x64\ImagingUtility.sourcelink.json
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\DiscUtils.Fat.dll
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ExFat.Core.dll
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-x64\ExFat.DiscUtils.dll

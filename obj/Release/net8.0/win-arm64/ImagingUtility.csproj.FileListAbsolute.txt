@@ -2,7 +2,6 @@ c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ImagingUtility.exe
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ImagingUtility.deps.json
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ImagingUtility.runtimeconfig.json
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ImagingUtility.dll
-c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ImagingUtility.pdb
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\System.CodeDom.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\System.Management.dll
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.csproj.AssemblyReference.cache
@@ -13,7 +12,6 @@ c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.cspro
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingU.80A6E31B.Up2Date
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.dll
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\refint\ImagingUtility.dll
-c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.pdb
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.genruntimeconfig.cache
 c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ref\ImagingUtility.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ZstdSharp.dll
@@ -202,4 +200,6 @@ C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\msquic.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Core.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Ntfs.dll
 c:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Streams.dll
-c:\Users\steeb\imaging-utility\obj\Release\net8.0\win-arm64\ImagingUtility.sourcelink.json
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\DiscUtils.Fat.dll
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ExFat.Core.dll
+C:\Users\steeb\imaging-utility\bin\Release\net8.0\win-arm64\ExFat.DiscUtils.dll

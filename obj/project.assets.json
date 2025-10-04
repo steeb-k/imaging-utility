@@ -19,6 +19,22 @@
           }
         }
       },
+      "DiscUtils.Fat/0.16.13": {
+        "type": "package",
+        "dependencies": {
+          "DiscUtils.Core": "0.16.13"
+        },
+        "compile": {
+          "lib/net5.0/DiscUtils.Fat.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net5.0/DiscUtils.Fat.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "DiscUtils.Ntfs/0.16.13": {
         "type": "package",
         "dependencies": {
@@ -48,10 +64,34 @@
           }
         }
       },
-      "Microsoft.NET.ILLink.Tasks/8.0.14": {
+      "ExFat.Core/0.9.16": {
         "type": "package",
-        "build": {
-          "build/Microsoft.NET.ILLink.Tasks.props": {}
+        "compile": {
+          "lib/net40-client/ExFat.Core.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net40-client/ExFat.Core.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
+      "ExFat.DiscUtils/0.9.16": {
+        "type": "package",
+        "dependencies": {
+          "DiscUtils.Core": "0.13.0-alpha",
+          "ExFat.Core": "0.9.16"
+        },
+        "compile": {
+          "lib/net40-client/ExFat.DiscUtils.dll": {
+            "related": ".pdb"
+          }
+        },
+        "runtime": {
+          "lib/net40-client/ExFat.DiscUtils.dll": {
+            "related": ".pdb"
+          }
         }
       },
       "Microsoft.NETCore.Platforms/5.0.0": {
@@ -160,7 +200,7 @@
         }
       }
     },
-    "net8.0/win-x64": {
+    "net8.0/win-arm64": {
       "DiscUtils.Core/0.16.13": {
         "type": "package",
         "dependencies": {
@@ -174,6 +214,22 @@
         },
         "runtime": {
           "lib/net5.0/DiscUtils.Core.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "DiscUtils.Fat/0.16.13": {
+        "type": "package",
+        "dependencies": {
+          "DiscUtils.Core": "0.16.13"
+        },
+        "compile": {
+          "lib/net5.0/DiscUtils.Fat.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net5.0/DiscUtils.Fat.dll": {
             "related": ".xml"
           }
         }
@@ -207,10 +263,34 @@
           }
         }
       },
-      "Microsoft.NET.ILLink.Tasks/8.0.14": {
+      "ExFat.Core/0.9.16": {
         "type": "package",
-        "build": {
-          "build/Microsoft.NET.ILLink.Tasks.props": {}
+        "compile": {
+          "lib/net40-client/ExFat.Core.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net40-client/ExFat.Core.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
+      "ExFat.DiscUtils/0.9.16": {
+        "type": "package",
+        "dependencies": {
+          "DiscUtils.Core": "0.13.0-alpha",
+          "ExFat.Core": "0.9.16"
+        },
+        "compile": {
+          "lib/net40-client/ExFat.DiscUtils.dll": {
+            "related": ".pdb"
+          }
+        },
+        "runtime": {
+          "lib/net40-client/ExFat.DiscUtils.dll": {
+            "related": ".pdb"
+          }
         }
       },
       "Microsoft.NETCore.Platforms/5.0.0": {
@@ -318,6 +398,25 @@
         "lib/netstandard2.0/DiscUtils.Core.xml"
       ]
     },
+    "DiscUtils.Fat/0.16.13": {
+      "sha512": "Ch29amFF0dMBwHuq4Tuu1ycXzRpNY+8K8BMvGyMjJyrYQaNh0y99MNYEDQJK7lG9f8ih+PEWljLyp5AjR/SDlw==",
+      "type": "package",
+      "path": "discutils.fat/0.16.13",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "discutils.fat.0.16.13.nupkg.sha512",
+        "discutils.fat.nuspec",
+        "lib/net40/DiscUtils.Fat.dll",
+        "lib/net40/DiscUtils.Fat.xml",
+        "lib/net45/DiscUtils.Fat.dll",
+        "lib/net45/DiscUtils.Fat.xml",
+        "lib/net5.0/DiscUtils.Fat.dll",
+        "lib/net5.0/DiscUtils.Fat.xml",
+        "lib/netstandard2.0/DiscUtils.Fat.dll",
+        "lib/netstandard2.0/DiscUtils.Fat.xml"
+      ]
+    },
     "DiscUtils.Ntfs/0.16.13": {
       "sha512": "K7e2KJ7TjDI566SXBnLBfmRPWDqMjb/0T6UMdY+BzyWfiQJVpBQ0BMO89kuvknbz17zTSi1TDLiT9GOOJEpUCg==",
       "type": "package",
@@ -356,55 +455,90 @@
         "lib/netstandard2.0/DiscUtils.Streams.xml"
       ]
     },
-    "Microsoft.NET.ILLink.Tasks/8.0.14": {
-      "sha512": "4U2fd7PexNKrK5ZqfqIcXZj9/lRRjFsLgA/pxuFQTuGQuLYP/+7yACz/j7EmWbEj/fspOf4mafi/vHIy/rKDzQ==",
+    "ExFat.Core/0.9.16": {
+      "sha512": "dXFNLqXc8V2QS5/sQ0yMmP8h6ssL7m3jt8eznHf+jiEGWf7YDLlZcSQG1xnW6Q0IsbIOygTQ+s6Odd2IVLv/4Q==",
       "type": "package",
-      "path": "microsoft.net.illink.tasks/8.0.14",
-      "hasTools": true,
+      "path": "exfat.core/0.9.16",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "Icon.png",
-        "LICENSE.TXT",
-        "Sdk/Sdk.props",
-        "THIRD-PARTY-NOTICES.TXT",
-        "analyzers/dotnet/cs/ILLink.CodeFixProvider.dll",
-        "analyzers/dotnet/cs/ILLink.RoslynAnalyzer.dll",
-        "build/Microsoft.NET.ILLink.Analyzers.props",
-        "build/Microsoft.NET.ILLink.Tasks.props",
-        "build/Microsoft.NET.ILLink.targets",
-        "microsoft.net.illink.tasks.8.0.14.nupkg.sha512",
-        "microsoft.net.illink.tasks.nuspec",
-        "tools/net472/ILLink.Tasks.dll",
-        "tools/net472/ILLink.Tasks.dll.config",
-        "tools/net472/Mono.Cecil.Mdb.dll",
-        "tools/net472/Mono.Cecil.Pdb.dll",
-        "tools/net472/Mono.Cecil.Rocks.dll",
-        "tools/net472/Mono.Cecil.dll",
-        "tools/net472/Sdk/Sdk.props",
-        "tools/net472/System.Buffers.dll",
-        "tools/net472/System.Collections.Immutable.dll",
-        "tools/net472/System.Memory.dll",
-        "tools/net472/System.Numerics.Vectors.dll",
-        "tools/net472/System.Reflection.Metadata.dll",
-        "tools/net472/System.Runtime.CompilerServices.Unsafe.dll",
-        "tools/net472/build/Microsoft.NET.ILLink.Analyzers.props",
-        "tools/net472/build/Microsoft.NET.ILLink.Tasks.props",
-        "tools/net472/build/Microsoft.NET.ILLink.targets",
-        "tools/net8.0/ILLink.Tasks.deps.json",
-        "tools/net8.0/ILLink.Tasks.dll",
-        "tools/net8.0/Mono.Cecil.Mdb.dll",
-        "tools/net8.0/Mono.Cecil.Pdb.dll",
-        "tools/net8.0/Mono.Cecil.Rocks.dll",
-        "tools/net8.0/Mono.Cecil.dll",
-        "tools/net8.0/Sdk/Sdk.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.Analyzers.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.Tasks.props",
-        "tools/net8.0/build/Microsoft.NET.ILLink.targets",
-        "tools/net8.0/illink.deps.json",
-        "tools/net8.0/illink.dll",
-        "tools/net8.0/illink.runtimeconfig.json",
-        "useSharedDesignerContext.txt"
+        "exfat.core.0.9.16.nupkg.sha512",
+        "exfat.core.nuspec",
+        "lib/net40-client/ExFat.Core.dll",
+        "lib/net40-client/ExFat.Core.pdb",
+        "lib/net40-client/ExFat.Core.xml",
+        "src/Buffers/Buffer.cs",
+        "src/Buffers/BufferByteString.cs",
+        "src/Buffers/BufferBytes.cs",
+        "src/Buffers/BufferUInt16.cs",
+        "src/Buffers/BufferUInt32.cs",
+        "src/Buffers/BufferUInt64.cs",
+        "src/Buffers/BufferUInt8.cs",
+        "src/Buffers/BufferWideString.cs",
+        "src/Buffers/CacheValueProvider.cs",
+        "src/Buffers/EnumValueProvider.cs",
+        "src/Buffers/IValueProvider.cs",
+        "src/Buffers/ShiftValueProvider.cs",
+        "src/BytesExtension.cs",
+        "src/Cache.cs",
+        "src/DateTimeUtility.cs",
+        "src/EnumUtility.cs",
+        "src/ExFatFormatOptions.cs",
+        "src/ExFatOptions.cs",
+        "src/Filesystem/ExFatEntryFilesystem.cs",
+        "src/Filesystem/ExFatEntryInformation.cs",
+        "src/Filesystem/ExFatFilesystemEntry.cs",
+        "src/Filesystem/ExFatPathFilesystem.cs",
+        "src/IO/Cluster.cs",
+        "src/IO/ClusterStream.cs",
+        "src/IO/DataDescriptor.cs",
+        "src/IO/IDataProvider.cs",
+        "src/IntegerExtensions.cs",
+        "src/LittleEndian.cs",
+        "src/Partition/Entries/AllocationBitmapExFatDirectoryEntry.cs",
+        "src/Partition/Entries/AllocationBitmapFlags.cs",
+        "src/Partition/Entries/EntryDateTime.cs",
+        "src/Partition/Entries/EntryDateTimeOffset.cs",
+        "src/Partition/Entries/EntryTimeZone.cs",
+        "src/Partition/Entries/ExFatDirectoryEntry.cs",
+        "src/Partition/Entries/ExFatDirectoryEntryType.cs",
+        "src/Partition/Entries/ExFatFileAttributes.cs",
+        "src/Partition/Entries/ExFatGeneralSecondaryFlags.cs",
+        "src/Partition/Entries/ExFatMetaDirectoryEntry.cs",
+        "src/Partition/Entries/FatDirectoryEntry.cs",
+        "src/Partition/Entries/FileExFatDirectoryEntry.cs",
+        "src/Partition/Entries/FileNameExtensionExFatDirectoryEntry.cs",
+        "src/Partition/Entries/StreamExtensionExFatDirectoryEntry.cs",
+        "src/Partition/Entries/UpCaseTableExFatDirectoryEntry.cs",
+        "src/Partition/Entries/VolumeLabelExFatDirectoryEntry.cs",
+        "src/Partition/ExFatAllocationBitmap.cs",
+        "src/Partition/ExFatBootSector.cs",
+        "src/Partition/ExFatPartition.Directory.cs",
+        "src/Partition/ExFatPartition.Format.cs",
+        "src/Partition/ExFatPartition.cs",
+        "src/Partition/ExFatUpCaseTable.cs",
+        "src/Partition/IClusterReader.cs",
+        "src/Partition/IClusterWriter.cs",
+        "src/Properties/AssemblyInfo.cs",
+        "src/Properties/ProductInfo.cs"
+      ]
+    },
+    "ExFat.DiscUtils/0.9.16": {
+      "sha512": "3cQCu2O9s1dJENp62Yex9O3nmzzrpG0KKVhWT0rAALPc/ImNd2rWGUxprHp/YKjpdoHzbL4UhU1lVo5t58hDTA==",
+      "type": "package",
+      "path": "exfat.discutils/0.9.16",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "exfat.discutils.0.9.16.nupkg.sha512",
+        "exfat.discutils.nuspec",
+        "lib/net40-client/ExFat.DiscUtils.dll",
+        "lib/net40-client/ExFat.DiscUtils.pdb",
+        "src/ExFatFileSystem.Path.cs",
+        "src/ExFatFileSystem.cs",
+        "src/ExFatFilesystemFactory.cs",
+        "src/ExFatSetupHelper.cs",
+        "src/Properties/AssemblyInfo.cs"
       ]
     },
     "Microsoft.NETCore.Platforms/5.0.0": {
@@ -606,8 +740,9 @@
   "projectFileDependencyGroups": {
     "net8.0": [
       "DiscUtils.Core >= 0.16.13",
+      "DiscUtils.Fat >= 0.16.13",
       "DiscUtils.Ntfs >= 0.16.13",
-      "Microsoft.NET.ILLink.Tasks >= 8.0.14",
+      "ExFat.DiscUtils >= 0.9.16",
       "System.Management >= 7.0.0",
       "ZstdSharp.Port >= 0.8.6"
     ]
@@ -648,6 +783,9 @@
         }
       },
       "warningProperties": {
+        "noWarn": [
+          "NU1701"
+        ],
         "warnAsError": [
           "NU1605"
         ]
@@ -667,15 +805,17 @@
             "target": "Package",
             "version": "[0.16.13, )"
           },
+          "DiscUtils.Fat": {
+            "target": "Package",
+            "version": "[0.16.13, )"
+          },
           "DiscUtils.Ntfs": {
             "target": "Package",
             "version": "[0.16.13, )"
           },
-          "Microsoft.NET.ILLink.Tasks": {
-            "suppressParent": "All",
+          "ExFat.DiscUtils": {
             "target": "Package",
-            "version": "[8.0.14, )",
-            "autoReferenced": true
+            "version": "[0.9.16, )"
           },
           "System.Management": {
             "target": "Package",
@@ -699,15 +839,15 @@
         "warn": true,
         "downloadDependencies": [
           {
-            "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+            "name": "Microsoft.AspNetCore.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           },
           {
-            "name": "Microsoft.NETCore.App.Runtime.win-x64",
+            "name": "Microsoft.NETCore.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           },
           {
-            "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+            "name": "Microsoft.WindowsDesktop.App.Runtime.win-arm64",
             "version": "[8.0.14, 8.0.14]"
           }
         ],
@@ -720,7 +860,7 @@
       }
     },
     "runtimes": {
-      "win-x64": {
+      "win-arm64": {
         "#import": []
       }
     }

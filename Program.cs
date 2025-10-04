@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Text;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using DiscUtils.Ntfs;
 
 namespace ImagingUtility
@@ -142,6 +143,52 @@ namespace ImagingUtility
                         IBlockReader reader = enableOptimizedReader ? 
                             new OptimizedDeviceReader(deviceToRead) : 
                             new RawDeviceReader(deviceToRead);
+                        
+                        // Detect filesystem type for metadata using boot sector analysis
+                        string? detectedFilesystem = null;
+                        try
+                        {
+                            using var fs = new FileStream(deviceToRead, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            var buffer = new byte[512];
+                            fs.Read(buffer, 0, 512);
+                            
+                            // Check for NTFS signature at offset 3
+                            if (buffer.Length >= 8 && System.Text.Encoding.ASCII.GetString(buffer, 3, 4) == "NTFS")
+                            {
+                                detectedFilesystem = "NTFS";
+                            }
+                            // Check for exFAT signature at offset 3
+                            else if (buffer.Length >= 8 && System.Text.Encoding.ASCII.GetString(buffer, 3, 4) == "EXFAT")
+                            {
+                                detectedFilesystem = "exFAT";
+                            }
+                            // Check for FAT32 signature at offset 82 (0x52) - look for "FAT32" string
+                            else if (buffer.Length >= 90 && System.Text.Encoding.ASCII.GetString(buffer, 82, 5) == "FAT32")
+                            {
+                                detectedFilesystem = "FAT32";
+                            }
+                            // Check for FAT16 signature
+                            else if (buffer.Length >= 54 && buffer[54] == 0x28 && buffer[55] == 0x29)
+                            {
+                                detectedFilesystem = "FAT";
+                            }
+                            
+                            // Debug output
+                            if (!string.IsNullOrEmpty(detectedFilesystem))
+                            {
+                                Console.WriteLine($"[DEBUG] Detected filesystem via boot sector: {detectedFilesystem}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[DEBUG] No filesystem signature found in boot sector");
+                                Console.WriteLine($"[DEBUG] Boot sector bytes 0-15: {BitConverter.ToString(buffer, 0, 16)}");
+                                Console.WriteLine($"[DEBUG] Boot sector bytes 80-90: {BitConverter.ToString(buffer, 80, 16)}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[DEBUG] Boot sector analysis failed: {ex.Message}");
+                        }
                         // If resume and output exists with a valid footer, resume from last chunk
                         var append = resume && File.Exists(outArg);
                         List<IndexEntry>? existingIndex = null;
@@ -169,7 +216,7 @@ namespace ImagingUtility
                         }
 
                         int finalChunk = chunkSize ?? ResolveDefaultChunkSize(effectiveParallel, pipelineDepth);
-                        var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, finalChunk, append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize);
+                        var writer = new ChunkedZstdWriter(outStream, reader.SectorSize, finalChunk, append: append, existingIndex: existingIndex, deviceLength: reader.TotalSize, filesystem: detectedFilesystem);
                         Func<int>? getDesired = BuildParallelProvider(effectiveParallel, parCtlFile, parCtlPipe);
                         
                         // Override with adaptive concurrency if enabled
@@ -703,6 +750,415 @@ namespace ImagingUtility
                     await ImagingUtility.NtfsWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token);
                     return 0;
                 }
+                else if (cmd == "fat-webdav")
+                {
+                    // fat-webdav --in <image-file> --offset <bytes> [--host 127.0.0.1] [--port 18082]
+                    // or: fat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: fat-webdav --in <image-file> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18082]\n   or: fat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    int port = 18082; if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var p)) port = p;
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    await ImagingUtility.FatWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token);
+                    return 0;
+                }
+                else if (cmd == "exfat-webdav")
+                {
+                    // exfat-webdav --in <image-file> --offset <bytes> [--host 127.0.0.1] [--port 18083]
+                    // or: exfat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: exfat-webdav --in <image-file> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18083]\n   or: exfat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    int port = 18083; if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var p)) port = p;
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    await ImagingUtility.ExFatWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token);
+                    return 0;
+                }
+                else if (cmd == "mount-webdav")
+                {
+                    // mount-webdav --in <image-file> --offset <bytes> --filesystem <ntfs|fat|exfat> --drive <letter> [--host 127.0.0.1] [--port N]
+                    // or: mount-webdav --set-dir <set> --partition <N|Letter> --filesystem <ntfs|fat|exfat> --drive <letter> [--host] [--port]
+                    var setDirArg = GetArgValue(args, "--set-dir");
+                    var partArg = GetArgValue(args, "--partition");
+                    var inArg = GetArgValue(args, "--in");
+                    var offArg = GetArgValue(args, "--offset");
+                    var filesystemArg = GetArgValue(args, "--filesystem");
+                    var driveArg = GetArgValue(args, "--drive");
+                    var host = GetArgValue(args, "--host") ?? "127.0.0.1";
+                    var portArg = GetArgValue(args, "--port");
+                    
+                    string imgPath = inArg ?? string.Empty;
+                    long volOffset = -1;
+                    string? manifestFilesystem = null;
+                    if (!string.IsNullOrEmpty(setDirArg) && !string.IsNullOrEmpty(partArg))
+                    {
+                        if (!TryResolvePartitionFromSet(setDirArg!, partArg!, out imgPath, out volOffset, out _, out manifestFilesystem))
+                        {
+                            Console.Error.WriteLine("Could not resolve partition from set. Ensure backup.manifest.json exists and the partition index/letter is valid.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(imgPath) || !File.Exists(imgPath))
+                    {
+                        Console.Error.WriteLine("Usage: mount-webdav --in <image-file> --offset <partition-start-bytes> --filesystem <ntfs|fat|exfat> --drive <letter> [--host 127.0.0.1] [--port N]\n   or: mount-webdav --set-dir <set> --partition <N|Letter> --drive <letter> [--filesystem <ntfs|fat|exfat>] [--host] [--port]");
+                        return 1;
+                    }
+                    if (volOffset < 0)
+                    {
+                        if (string.IsNullOrEmpty(offArg) || !long.TryParse(offArg, out volOffset) || volOffset < 0)
+                        {
+                            Console.Error.WriteLine("Provide --offset or use --set-dir with --partition.");
+                            return 1;
+                        }
+                    }
+                    if (string.IsNullOrEmpty(driveArg))
+                    {
+                        Console.Error.WriteLine("Usage: mount-webdav requires --drive <letter>");
+                        return 1;
+                    }
+                    
+                    // Use filesystem from manifest if available, otherwise try to read from image metadata, otherwise require --filesystem parameter
+                    string filesystem;
+                    if (!string.IsNullOrEmpty(manifestFilesystem))
+                    {
+                        filesystem = manifestFilesystem.ToLowerInvariant();
+                        Console.WriteLine($"Using filesystem from manifest: {filesystem}");
+                    }
+                    else if (!string.IsNullOrEmpty(filesystemArg))
+                    {
+                        filesystem = filesystemArg.ToLowerInvariant();
+                    }
+                    else
+                    {
+                        // Try to read filesystem from image metadata
+                        try
+                        {
+                            using var imageReader = new ImageReader(imgPath);
+                            if (!string.IsNullOrEmpty(imageReader.FileSystem))
+                            {
+                                filesystem = imageReader.FileSystem.ToLowerInvariant();
+                                Console.WriteLine($"Using filesystem from image metadata: {filesystem}");
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine("Usage: mount-webdav requires --filesystem <ntfs|fat|exfat> when filesystem cannot be auto-detected");
+                                return 1;
+                            }
+                        }
+                        catch
+                        {
+                            Console.Error.WriteLine("Usage: mount-webdav requires --filesystem <ntfs|fat|exfat> when filesystem cannot be auto-detected");
+                            return 1;
+                        }
+                    }
+                    string driveLetter = driveArg.ToUpperInvariant().TrimEnd(':');
+                    if (driveLetter.Length != 1 || !char.IsLetter(driveLetter[0]))
+                    {
+                        Console.Error.WriteLine("Drive letter must be a single letter (A-Z)");
+                        return 1;
+                    }
+                    
+                    // Determine port based on filesystem
+                    int port;
+                    if (!string.IsNullOrEmpty(portArg) && int.TryParse(portArg, out var p)) 
+                        port = p;
+                    else
+                        port = filesystem switch
+                        {
+                            "ntfs" => 18081,
+                            "fat" or "fat32" => 18082,
+                            "exfat" => 18083,
+                            _ => throw new ArgumentException($"Unsupported filesystem: {filesystem}")
+                        };
+                    
+                    // Find an available port if the default is taken
+                    port = FindAvailablePort(port);
+                    
+                    // Start the appropriate WebDAV server
+                    Console.WriteLine($"Starting {filesystem.ToUpper()} WebDAV server on {host}:{port}...");
+                    using var cts = new System.Threading.CancellationTokenSource();
+                    Console.CancelKeyPress += (s, e) => { e.Cancel = true; cts.Cancel(); };
+                    
+                    // Start WebDAV server in background
+                    var webdavTask = filesystem switch
+                    {
+                        "ntfs" => ImagingUtility.NtfsWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token),
+                        "fat" or "fat32" => ImagingUtility.FatWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token),
+                        "exfat" => ImagingUtility.ExFatWebDavServer.ServeAsync(host, port, imgPath, volOffset, cts.Token),
+                        _ => throw new ArgumentException($"Unsupported filesystem: {filesystem}")
+                    };
+                    
+                    // Wait a moment for server to start
+                    await Task.Delay(1000);
+                    
+                    // Map drive as current user (not elevated)
+                    string webdavUrl = $"http://{host}:{port}/";
+                    Console.WriteLine($"Mapping drive {driveLetter}: to {webdavUrl} as current user...");
+                    
+                    try
+                    {
+                        // Use schtasks to run the command in user context
+                        var taskName = $"ImagingUtility_Mount_{driveLetter}_{DateTime.Now:yyyyMMddHHmmss}";
+                        var batchContent = $@"@echo off
+net use {driveLetter}: ""{webdavUrl}""
+if %errorlevel% equ 0 (
+    echo SUCCESS: Drive mapped successfully
+    exit 0
+) else (
+    echo ERROR: Failed to map drive
+    exit 1
+)";
+                        
+                        var tempBatch = Path.GetTempFileName() + ".bat";
+                        File.WriteAllText(tempBatch, batchContent);
+                        
+                        // Create a scheduled task to run as current user
+                        var createTaskCmd = $"/create /tn \"{taskName}\" /tr \"{tempBatch}\" /sc once /st 00:00 /f";
+                        var runTaskCmd = $"/run /tn \"{taskName}\"";
+                        var deleteTaskCmd = $"/delete /tn \"{taskName}\" /f";
+                        
+                        // Create the task
+                        var createInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "schtasks.exe",
+                            Arguments = createTaskCmd,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true
+                        };
+                        
+                        using var createProcess = System.Diagnostics.Process.Start(createInfo);
+                        if (createProcess != null)
+                        {
+                            await createProcess.WaitForExitAsync();
+                            if (createProcess.ExitCode == 0)
+                            {
+                                // Run the task
+                                var runInfo = new System.Diagnostics.ProcessStartInfo
+                                {
+                                    FileName = "schtasks.exe",
+                                    Arguments = runTaskCmd,
+                                    UseShellExecute = false,
+                                    CreateNoWindow = true,
+                                    RedirectStandardOutput = true,
+                                    RedirectStandardError = true
+                                };
+                                
+                                using var runProcess = System.Diagnostics.Process.Start(runInfo);
+                                if (runProcess != null)
+                                {
+                                    await runProcess.WaitForExitAsync();
+                                    var output = await runProcess.StandardOutput.ReadToEndAsync();
+                                    var error = await runProcess.StandardError.ReadToEndAsync();
+                                    
+                                    // Clean up the task
+                                    var deleteInfo = new System.Diagnostics.ProcessStartInfo
+                                    {
+                                        FileName = "schtasks.exe",
+                                        Arguments = deleteTaskCmd,
+                                        UseShellExecute = false,
+                                        CreateNoWindow = true
+                                    };
+                                    using var deleteProcess = System.Diagnostics.Process.Start(deleteInfo);
+                                    deleteProcess?.WaitForExit();
+                                    
+                                    if (runProcess.ExitCode == 0)
+                                    {
+                                        Console.WriteLine($"✅ Successfully mapped {driveLetter}: to {webdavUrl}");
+                                        Console.WriteLine($"📁 Drive {driveLetter}: is now available in Windows Explorer");
+                                        Console.WriteLine($"🔄 Press Ctrl+C to unmount and stop the WebDAV server");
+                                        
+                                        // Monitor for parent process termination
+                                        _ = Task.Run(async () =>
+                                        {
+                                            try
+                                            {
+                                                var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+                                                var parentId = GetParentProcessId(currentProcess.Id);
+                                                
+                                                while (!cts.Token.IsCancellationRequested)
+                                                {
+                                                    try
+                                                    {
+                                                        var parent = System.Diagnostics.Process.GetProcessById(parentId);
+                                                        if (parent.HasExited)
+                                                        {
+                                                            Console.WriteLine($"🔄 Parent process {parentId} terminated, cleaning up...");
+                                                            break;
+                                                        }
+                                                    }
+                                                    catch (ArgumentException)
+                                                    {
+                                                        // Parent process no longer exists
+                                                        Console.WriteLine($"🔄 Parent process {parentId} no longer exists, cleaning up...");
+                                                        break;
+                                                    }
+                                                    
+                                                    await Task.Delay(1000, cts.Token);
+                                                }
+                                            }
+                                            catch (OperationCanceledException) { }
+                                            
+                                            // Cleanup: unmount drive and stop WebDAV server
+                                            try
+                                            {
+                                                Console.WriteLine($"🧹 Unmounting drive {driveLetter}:...");
+                                                
+                                                // Use schtasks to unmount in user context
+                                                var unmountTaskName = $"ImagingUtility_Unmount_{driveLetter}_{DateTime.Now:yyyyMMddHHmmss}";
+                                                var unmountBatchContent = $@"@echo off
+net use {driveLetter}: /delete
+exit 0";
+                                                
+                                                var tempUnmountBatch = Path.GetTempFileName() + ".bat";
+                                                File.WriteAllText(tempUnmountBatch, unmountBatchContent);
+                                                
+                                                var createUnmountTaskCmd = $"/create /tn \"{unmountTaskName}\" /tr \"{tempUnmountBatch}\" /sc once /st 00:00 /f";
+                                                var runUnmountTaskCmd = $"/run /tn \"{unmountTaskName}\"";
+                                                var deleteUnmountTaskCmd = $"/delete /tn \"{unmountTaskName}\" /f";
+                                                
+                                                // Create unmount task
+                                                var createUnmountInfo = new System.Diagnostics.ProcessStartInfo
+                                                {
+                                                    FileName = "schtasks.exe",
+                                                    Arguments = createUnmountTaskCmd,
+                                                    UseShellExecute = false,
+                                                    CreateNoWindow = true
+                                                };
+                                                
+                                                using var createUnmountProcess = System.Diagnostics.Process.Start(createUnmountInfo);
+                                                if (createUnmountProcess != null)
+                                                {
+                                                    createUnmountProcess.WaitForExit();
+                                                    if (createUnmountProcess.ExitCode == 0)
+                                                    {
+                                                        // Run unmount task
+                                                        var runUnmountInfo = new System.Diagnostics.ProcessStartInfo
+                                                        {
+                                                            FileName = "schtasks.exe",
+                                                            Arguments = runUnmountTaskCmd,
+                                                            UseShellExecute = false,
+                                                            CreateNoWindow = true
+                                                        };
+                                                        
+                                                        using var runUnmountProcess = System.Diagnostics.Process.Start(runUnmountInfo);
+                                                        runUnmountProcess?.WaitForExit();
+                                                        
+                                                        // Wait a moment for the unmount to complete
+                                                        await Task.Delay(2000);
+                                                        
+                                                        // Clean up unmount task
+                                                        var deleteUnmountInfo = new System.Diagnostics.ProcessStartInfo
+                                                        {
+                                                            FileName = "schtasks.exe",
+                                                            Arguments = deleteUnmountTaskCmd,
+                                                            UseShellExecute = false,
+                                                            CreateNoWindow = true
+                                                        };
+                                                        using var deleteUnmountProcess = System.Diagnostics.Process.Start(deleteUnmountInfo);
+                                                        deleteUnmountProcess?.WaitForExit();
+                                                    }
+                                                }
+                                            }
+                                            catch { }
+                                            
+                                            cts.Cancel();
+                                        });
+                                        
+                                        // Wait for WebDAV server to complete
+                                        await webdavTask;
+                                        
+                                        // Give cleanup time to complete
+                                        Console.WriteLine("🔄 Waiting for cleanup to complete...");
+                                        await Task.Delay(3000);
+                                        
+                                        return 0;
+                                    }
+                                    else
+                                    {
+                                        Console.Error.WriteLine($"❌ Failed to map drive: {error}");
+                                        return 1;
+                                    }
+                                }
+                                else
+                                {
+                                    Console.Error.WriteLine("❌ Failed to start task execution");
+                                    return 1;
+                                }
+                            }
+                            else
+                            {
+                                Console.Error.WriteLine("❌ Failed to create scheduled task");
+                                return 1;
+                            }
+                        }
+                        else
+                        {
+                            Console.Error.WriteLine("❌ Failed to start task creation");
+                            return 1;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"❌ Error mapping drive: {ex.Message}");
+                        return 1;
+                    }
+                }
                 else if (cmd == "restore-set")
                 {
                     // restore-set --set-dir <dir> --out-raw <file>
@@ -857,6 +1313,11 @@ namespace ImagingUtility
         static string NormalizeVolume(string v)
         {
             if (string.IsNullOrEmpty(v)) return v;
+            
+            // Handle volume GUID paths (e.g., \\?\Volume{guid}) - don't modify them
+            if (v.StartsWith(@"\\?\Volume{") && v.EndsWith("}"))
+                return v;
+            
             // accept C: or C:\\ or full paths; ensure trailing backslash
             if (v.Length == 2 && v[1] == ':') return v + "\\";
             if (v.Length >= 2 && v[1] == ':' && (v.Length == 2 || v[2] != '\\')) return v.Substring(0, 2) + "\\";
@@ -892,12 +1353,12 @@ namespace ImagingUtility
             }
         }
 
-        // Default chunk size selection: prefer 512 MiB, but fallback to 64 MiB if memory is constrained.
+        // Default chunk size selection: prefer 64 MiB for better memory efficiency during verification.
         // Heuristic: require at least (parallel * pipelineDepth * chunk + margin) free memory.
         private static int ResolveDefaultChunkSize(int effectiveParallel, int pipelineDepth)
         {
-            const long preferred = 512L * 1024 * 1024; // 512 MiB
-            const long fallback = 64L * 1024 * 1024;   // 64 MiB
+            const long preferred = 64L * 1024 * 1024;   // 64 MiB (better for verification)
+            const long fallback = 32L * 1024 * 1024;   // 32 MiB (fallback for very constrained systems)
             long neededPreferred = (long)effectiveParallel * pipelineDepth * preferred + (128L * 1024 * 1024);
             long free = GetApproxAvailableMemory();
             if (free <= 0)
@@ -943,8 +1404,8 @@ namespace ImagingUtility
             Console.WriteLine("ImagingUtility - simple prototype\n");
             Console.WriteLine("Commands:");
             Console.WriteLine("  list\t\tList physical drives");
-            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--no-adaptive-concurrency] [--no-optimized-reader] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF, adaptive concurrency ON, optimized reader ON)".Replace(" ", string.Empty));
-            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tSnapshot multiple volumes (defaults: --used-only, 512M chunk with 64M fallback, write-through OFF)");
+            Console.WriteLine("  image --device \\ \\ \\ . \\ \\ PhysicalDriveN|C: --out <file> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--no-adaptive-concurrency] [--no-optimized-reader] [--plain]\tCreate or resume a chunked image (defaults: --used-only, 64M chunk with 32M fallback, write-through OFF, adaptive concurrency ON, optimized reader ON)".Replace(" ", string.Empty));
+            Console.WriteLine("  image --volumes C:,D: --out-dir <dir> [--use-vss] [--resume] [--all-blocks] [--chunk-size N] [--max-bytes N] [--parallel N] [--pipeline-depth N] [--write-through] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tSnapshot multiple volumes (defaults: --used-only, 64M chunk with 32M fallback, write-through OFF)");
             Console.WriteLine("  backup-disk --disk N --out-dir <dir> [--use-vss] [--parallel N] [--pipeline-depth N] [--write-through] [--skip-hashes] [--parallel-control-file PATH] [--parallel-control-pipe NAME] [--plain]\tCreate a full-disk backup set (manifest + per-partition images; write-through OFF by default)");
             Console.WriteLine("  verify-set --set-dir <dir> [--quick] [--parallel N] [--no-adaptive-verify] [--debug] [--plain]\tVerify a full backup set: manifest, raw-dump hashes, and per-image verification (adaptive verification ON by default)");
             Console.WriteLine("  restore-set --set-dir <dir> --out-raw <file>\tReconstruct a raw disk image from a backup set");
@@ -959,6 +1420,12 @@ namespace ImagingUtility
             Console.WriteLine("             or: ntfs-serve --set-dir <set> --partition <N|Letter> [--host] [--port]");
             Console.WriteLine("  ntfs-webdav --in <image> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18081]\tRead-only WebDAV view; map with 'net use Z: http://host:port/'");
             Console.WriteLine("             or: ntfs-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+            Console.WriteLine("  fat-webdav --in <image> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18082]\tRead-only WebDAV view for FAT32; map with 'net use Z: http://host:port/'");
+            Console.WriteLine("             or: fat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+            Console.WriteLine("  exfat-webdav --in <image> --offset <partition-start-bytes> [--host 127.0.0.1] [--port 18083]\tRead-only WebDAV view for exFAT; map with 'net use Z: http://host:port/'");
+            Console.WriteLine("             or: exfat-webdav --set-dir <set> --partition <N|Letter> [--host] [--port]");
+            Console.WriteLine("  mount-webdav --in <image> --offset <partition-start-bytes> --filesystem <ntfs|fat|exfat> --drive <letter> [--host 127.0.0.1] [--port N]\tOne-command mounting: starts WebDAV server and maps drive letter automatically");
+            Console.WriteLine("             or: mount-webdav --set-dir <set> --partition <N|Letter> --filesystem <ntfs|fat|exfat> --drive <letter> [--host] [--port]");
             Console.WriteLine("  serve-proxy --in <image> [--host 127.0.0.1] [--port 11459] [--pipe NAME] [--cache-chunks 4] [--offset N] [--length N]\tServe a read-only block device over TCP or named pipe for DevIO/Proxy-compatible clients; optionally window a partition with --offset/--length");
             Console.WriteLine("             or: serve-proxy --set-dir <set> --partition <N|Letter> [...]");
             Console.WriteLine("  dump-pt --device \\ \\ \\ . \\ \\ PhysicalDriveN --out <file> [--bytes N]\tDump first bytes (MBR/GPT) for system disk backups".Replace(" ", string.Empty));
@@ -990,6 +1457,59 @@ namespace ImagingUtility
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
 #pragma warning restore CA1416
+        }
+
+        static int GetParentProcessId(int processId)
+        {
+            try
+            {
+                using var searcher = new System.Management.ManagementObjectSearcher(
+                    $"SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {processId}");
+                foreach (System.Management.ManagementObject obj in searcher.Get())
+                {
+                    var parentId = Convert.ToInt32(obj["ParentProcessId"]);
+                    return parentId;
+                }
+            }
+            catch
+            {
+                // Fallback to current process ID if we can't get parent
+            }
+            return processId;
+        }
+
+        static int FindAvailablePort(int preferredPort)
+        {
+            // Try the preferred port first
+            if (IsPortAvailable(preferredPort))
+                return preferredPort;
+            
+            // Search for an available port starting from preferred + 1
+            for (int port = preferredPort + 1; port <= preferredPort + 100; port++)
+            {
+                if (IsPortAvailable(port))
+                {
+                    Console.WriteLine($"Port {preferredPort} is in use, using port {port} instead");
+                    return port;
+                }
+            }
+            
+            throw new Exception($"No available ports found starting from {preferredPort}");
+        }
+
+        static bool IsPortAvailable(int port)
+        {
+            try
+            {
+                using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+                listener.Start();
+                listener.Stop();
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static void CreateVerificationAcknowledgment(string imagePath, bool verificationPassed, bool wasQuick)
@@ -1091,11 +1611,14 @@ namespace ImagingUtility
         // Resolve a partition from a backup set manifest by index or drive letter.
         // Returns true if successful, providing an image path and volume start offset (and optional length).
         private static bool TryResolvePartitionFromSet(string setDir, string partitionSelector, out string imagePath, out long volumeOffset)
-            => TryResolvePartitionFromSet(setDir, partitionSelector, out imagePath, out volumeOffset, out _);
+            => TryResolvePartitionFromSet(setDir, partitionSelector, out imagePath, out volumeOffset, out _, out _);
 
         private static bool TryResolvePartitionFromSet(string setDir, string partitionSelector, out string imagePath, out long volumeOffset, out long? volumeLength)
+            => TryResolvePartitionFromSet(setDir, partitionSelector, out imagePath, out volumeOffset, out volumeLength, out _);
+
+        private static bool TryResolvePartitionFromSet(string setDir, string partitionSelector, out string imagePath, out long volumeOffset, out long? volumeLength, out string? filesystem)
         {
-            imagePath = string.Empty; volumeOffset = -1; volumeLength = null;
+            imagePath = string.Empty; volumeOffset = -1; volumeLength = null; filesystem = null;
             try
             {
                 string manifestPath = Path.Combine(setDir, "backup.manifest.json");
@@ -1118,6 +1641,7 @@ namespace ImagingUtility
                     }
                 }
                 if (match == null) return false;
+                filesystem = match.FileSystem; // Set the filesystem from the manifest
                 // Prefer a compressed image file for this partition
                 if (!string.IsNullOrEmpty(match.ImageFile))
                 {

@@ -10,7 +10,9 @@
       "ImagingUtility/1.0.0": {
         "dependencies": {
           "DiscUtils.Core": "0.16.13",
+          "DiscUtils.Fat": "0.16.13",
           "DiscUtils.Ntfs": "0.16.13",
+          "ExFat.DiscUtils": "0.9.16",
           "Microsoft.NET.ILLink.Tasks": "8.0.14",
           "System.Management": "7.0.0",
           "ZstdSharp.Port": "0.8.6",
@@ -708,6 +710,17 @@
           }
         }
       },
+      "DiscUtils.Fat/0.16.13": {
+        "dependencies": {
+          "DiscUtils.Core": "0.16.13"
+        },
+        "runtime": {
+          "lib/net5.0/DiscUtils.Fat.dll": {
+            "assemblyVersion": "0.16.0.0",
+            "fileVersion": "0.16.13.55129"
+          }
+        }
+      },
       "DiscUtils.Ntfs/0.16.13": {
         "dependencies": {
           "DiscUtils.Core": "0.16.13"
@@ -724,6 +737,26 @@
           "lib/net5.0/DiscUtils.Streams.dll": {
             "assemblyVersion": "0.16.0.0",
             "fileVersion": "0.16.13.55129"
+          }
+        }
+      },
+      "ExFat.Core/0.9.16": {
+        "runtime": {
+          "lib/net40-client/ExFat.Core.dll": {
+            "assemblyVersion": "0.9.16.0",
+            "fileVersion": "0.9.16.0"
+          }
+        }
+      },
+      "ExFat.DiscUtils/0.9.16": {
+        "dependencies": {
+          "DiscUtils.Core": "0.16.13",
+          "ExFat.Core": "0.9.16"
+        },
+        "runtime": {
+          "lib/net40-client/ExFat.DiscUtils.dll": {
+            "assemblyVersion": "0.9.16.0",
+            "fileVersion": "0.9.16.0"
           }
         }
       },
@@ -783,6 +816,13 @@
       "path": "discutils.core/0.16.13",
       "hashPath": "discutils.core.0.16.13.nupkg.sha512"
     },
+    "DiscUtils.Fat/0.16.13": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Ch29amFF0dMBwHuq4Tuu1ycXzRpNY+8K8BMvGyMjJyrYQaNh0y99MNYEDQJK7lG9f8ih+PEWljLyp5AjR/SDlw==",
+      "path": "discutils.fat/0.16.13",
+      "hashPath": "discutils.fat.0.16.13.nupkg.sha512"
+    },
     "DiscUtils.Ntfs/0.16.13": {
       "type": "package",
       "serviceable": true,
@@ -796,6 +836,20 @@
       "sha512": "sha512-BSrywAX2mmvt6j00u6VQYQLtxc6jDniK2aP4p0q20bbTGXImtW4N26eUZYKfkW9aj6XLaqISFgtWfssKURixeA==",
       "path": "discutils.streams/0.16.13",
       "hashPath": "discutils.streams.0.16.13.nupkg.sha512"
+    },
+    "ExFat.Core/0.9.16": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-dXFNLqXc8V2QS5/sQ0yMmP8h6ssL7m3jt8eznHf+jiEGWf7YDLlZcSQG1xnW6Q0IsbIOygTQ+s6Odd2IVLv/4Q==",
+      "path": "exfat.core/0.9.16",
+      "hashPath": "exfat.core.0.9.16.nupkg.sha512"
+    },
+    "ExFat.DiscUtils/0.9.16": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-3cQCu2O9s1dJENp62Yex9O3nmzzrpG0KKVhWT0rAALPc/ImNd2rWGUxprHp/YKjpdoHzbL4UhU1lVo5t58hDTA==",
+      "path": "exfat.discutils/0.9.16",
+      "hashPath": "exfat.discutils.0.9.16.nupkg.sha512"
     },
     "Microsoft.NET.ILLink.Tasks/8.0.14": {
       "type": "package",

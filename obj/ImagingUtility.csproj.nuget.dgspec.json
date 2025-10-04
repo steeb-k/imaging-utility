@@ -36,6 +36,9 @@
           }
         },
         "warningProperties": {
+          "noWarn": [
+            "NU1701"
+          ],
           "warnAsError": [
             "NU1605"
           ]
@@ -55,15 +58,17 @@
               "target": "Package",
               "version": "[0.16.13, )"
             },
+            "DiscUtils.Fat": {
+              "target": "Package",
+              "version": "[0.16.13, )"
+            },
             "DiscUtils.Ntfs": {
               "target": "Package",
               "version": "[0.16.13, )"
             },
-            "Microsoft.NET.ILLink.Tasks": {
-              "suppressParent": "All",
+            "ExFat.DiscUtils": {
               "target": "Package",
-              "version": "[8.0.14, )",
-              "autoReferenced": true
+              "version": "[0.9.16, )"
             },
             "System.Management": {
               "target": "Package",
@@ -87,15 +92,15 @@
           "warn": true,
           "downloadDependencies": [
             {
-              "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
+              "name": "Microsoft.AspNetCore.App.Runtime.win-arm64",
               "version": "[8.0.14, 8.0.14]"
             },
             {
-              "name": "Microsoft.NETCore.App.Runtime.win-x64",
+              "name": "Microsoft.NETCore.App.Runtime.win-arm64",
               "version": "[8.0.14, 8.0.14]"
             },
             {
-              "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
+              "name": "Microsoft.WindowsDesktop.App.Runtime.win-arm64",
               "version": "[8.0.14, 8.0.14]"
             }
           ],
@@ -108,7 +113,7 @@
         }
       },
       "runtimes": {
-        "win-x64": {
+        "win-arm64": {
           "#import": []
         }
       }

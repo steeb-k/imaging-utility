@@ -5,9 +5,9 @@ ImagingUtility
 Prototype Windows disk/volume imaging utility (C# / .NET 8) with VSS snapshots, compressed chunked format, resume, verification, multi-volume imaging, and a simple GUI.
 
 Key features
-- Open, chunked image format (v2) with per-chunk SHA-256, index, and tail.
+- Open, chunked image format (v3) with per-chunk SHA-256, index, tail, and filesystem metadata.
 - Used-blocks-only (NTFS) imaging by default; full-block mode via --all-blocks.
-- Compression: zstd (pure C#), default 512 MiB chunks (memory-aware fallback to 64 MiB), configurable via --chunk-size.
+- Compression: zstd (pure C#), default 64 MiB chunks (memory-aware fallback to 32 MiB), configurable via --chunk-size.
 - Resume: --resume continues from last valid chunk and rewrites the footer.
 - Verify: full verify, or fast sampling-based verify via verify --quick.
 - **Performance Optimizations (Default ON)**:
@@ -25,7 +25,7 @@ Key features
 
 Defaults
 - Mode: used-only (NTFS volumes)
-- Chunk: 512 MiB preferred, automatic fallback to 64 MiB if memory is constrained
+- Chunk: 64 MiB preferred, automatic fallback to 32 MiB if memory is constrained
 - Parallel: chosen dynamically to target ~4 total workers with pipeline depth
 - Pipeline depth: chosen dynamically; bounded capacity = parallel × depth
 - Write-through: OFF (use --write-through to enable)
@@ -67,6 +67,9 @@ CLI commands
 - ntfs-extract – extract files/folders from an NTFS partition inside a compressed image (ACLs bypassed)
 - ntfs-serve – browse/download NTFS contents over HTTP (ACLs bypassed)
 - ntfs-webdav – serve NTFS over WebDAV (read-only); map a drive letter with the Windows WebDAV redirector
+- fat-webdav – serve FAT32 over WebDAV (read-only); map a drive letter with the Windows WebDAV redirector
+- exfat-webdav – serve exFAT over WebDAV (read-only); map a drive letter with the Windows WebDAV redirector
+- mount-webdav – one-command mounting: starts WebDAV server and maps drive letter automatically (supports NTFS, FAT32, exFAT)
 - backup-disk – create a full-disk backup set (manifest + per-partition files)
 - restore-set / restore-physical – rehydrate a set to raw or to a disk
 - dump-pt – dump first N bytes (MBR/GPT region)
@@ -156,6 +159,27 @@ Examples
 # In another admin PowerShell, ensure WebClient is running and map a drive:
 Start-Service WebClient
 net use Z: http://127.0.0.1:18081/ /persistent:no
+
+# Manual WebDAV mounting for different filesystems
+.\bin\Release\net8.0\ImagingUtility.exe fat-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --port 18082
+.\bin\Release\net8.0\ImagingUtility.exe exfat-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --port 18083
+# Then map drives manually:
+net use Y: http://127.0.0.1:18082/ /persistent:no
+net use X: http://127.0.0.1:18083/ /persistent:no
+
+# One-command mounting (recommended for GUI applications)
+# Automatic filesystem detection from image metadata (v3 images)
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --drive Z
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --drive Y
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --drive X
+
+# Manual filesystem specification (still supported)
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\Disk0-D.skzimg' --offset 1048576 --filesystem ntfs --drive Z
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\FAT32-Partition.skzimg' --offset 0 --filesystem fat --drive Y
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --in 'F:\Backups\exFAT-Partition.skzimg' --offset 0 --filesystem exfat --drive X
+
+# Automatic filesystem detection from backup set manifest
+.\bin\Release\net8.0\ImagingUtility.exe mount-webdav --set-dir 'F:\Backups\Disk0-Set' --partition 3 --drive Z
 ```
 
 Live parallelism control
@@ -175,7 +199,9 @@ Notes
 - When mounting an image via DevIo/Proxy (AIM/ImDisk), Windows enforces NTFS ACLs from the captured volume. To access folders you normally can’t (even as admin), either:
   - Use the userspace tools here (ntfs-extract / ntfs-serve) which bypass ACLs by reading the filesystem structures directly, or
   - Use tools that leverage SeBackupPrivilege (e.g., robocopy /B) on the mounted volume.
-- WebDAV mapping (ntfs-webdav) provides an Explorer-friendly, read-only view that bypasses ACLs. Requires the WebClient service. For large bulk copies, direct extraction may be faster.
+- WebDAV mapping (ntfs-webdav, fat-webdav, exfat-webdav, mount-webdav) provides an Explorer-friendly, read-only view that bypasses ACLs. Requires the WebClient service. For large bulk copies, direct extraction may be faster.
+- The mount-webdav command automatically handles elevation separation: WebDAV server runs as Administrator, drive mapping runs as current user for proper Windows Explorer visibility.
+- Image format v3 includes filesystem metadata for automatic detection during mounting. Single-partition images created with this version will automatically detect filesystem type.
 
 Plain progress mode
 - When standard output is redirected or the environment variable IMAGINGUTILITY_PLAIN=1 is set, progress is printed as parse-friendly lines:

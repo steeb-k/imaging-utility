@@ -57,9 +57,10 @@ namespace ImagingUtility
             bool isVssSnapshot = devicePath.Contains("HarddiskVolumeShadowCopy");
             bool isMountedDrive = devicePath.StartsWith(@"\\.\") && devicePath.EndsWith(":");
             bool isPhysicalDrive = devicePath.StartsWith(@"\\.\PhysicalDrive");
+            bool isVolumeGuid = devicePath.StartsWith(@"\\?\Volume{") && devicePath.EndsWith("}");
             
             // Try aggressive locking for mounted drives to enable async I/O
-            bool supportsAsync = !isVssSnapshot && !isPhysicalDrive;
+            bool supportsAsync = !isVssSnapshot && !isPhysicalDrive && !isVolumeGuid;
             if (isMountedDrive)
             {
                 Console.WriteLine($"Attempting aggressive locking for device: {devicePath}");
