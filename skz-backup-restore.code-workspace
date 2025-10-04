@@ -7,5 +7,7 @@
 			"path": "../skz-backup-restore"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"dotnet.defaultSolution": "disable"
+	}
 }
